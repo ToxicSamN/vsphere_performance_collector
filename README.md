@@ -1,6 +1,9 @@
 # vsphere_performance_collector
 Performance collector for VMs and ESXi hosts
 
+## Disclaimer
+The code presented in this repo was specifically designed for a customer use case and as such, means there may be sections of code that would need to be rewritten or modified for your specific use case. Specifically around the preparations and setup of the environments, the git repo locations, the file/folder structures, the contents of the systemd files (*.service) ect.
+
 ## Collector
 The metrics collectors will collect performance data from vcenter for all VMs and ESXi hosts. This is done on Linux RHEL7 and python 3.6.4 and sendign the data to a Telegraf/InfluxDB server. There is also a Django REST API for controlling how many objects each collector is collecting on.
 
