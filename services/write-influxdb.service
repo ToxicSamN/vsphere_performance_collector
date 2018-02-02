@@ -1,0 +1,14 @@
+[Unit]
+Description=UCG script writing data to influxdb
+Wants=network-online.target
+After=multi-user.target network-online.target
+
+[Service]
+Type=simple
+ExecStart=/u01/git_repo/ucgmetrics_scripts/metrics_collection/services/write_influx_data.sh
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=startuplast.target
+

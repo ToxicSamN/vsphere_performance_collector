@@ -1,0 +1,14 @@
+[Unit]
+Description=Launches get_vm_metrics.py
+Wants=network-online.target
+After=multi-user.target network-online.target
+
+[Service]
+Type=simple
+ExecStart=/u01/git_repo/ucgmetrics_scripts/metrics_collection/services/get_vmmetrics.sh
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=startuplast.target
+
