@@ -1,4 +1,4 @@
-VERSION = "1.9.9"
+VERSION = "2.0.0"
 
 import sys
 import os
@@ -353,7 +353,8 @@ if __name__ == '__main__':
                                            kwargs={'vcenter': vc,
                                                    'sq': sq,
                                                    'args': args
-                                                   }
+                                                   },
+                                           name=vcenter
                                            ))
                 # Join the process so that the While loop is halted until the process is complete
                 # or times out after max_running_threshold seconds
