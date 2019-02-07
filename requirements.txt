@@ -1,15 +1,7 @@
-certifi==2018.10.15
-chardet==3.0.4
 configparser==3.5.0
-idna==2.7
 influxdb==5.2.0
-pyasn1==0.4.4
-pyasn1-modules==0.2.2
+numpy==1.15.4
 pycrypt-samn==1.2.4
 pycryptodome==3.7.0
 python-dateutil==2.7.5
-pytz==2018.7
 pyvmomi==6.7.1
-requests==2.20.1
-six==1.11.0
-urllib3==1.24

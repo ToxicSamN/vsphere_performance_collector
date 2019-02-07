@@ -4,7 +4,7 @@ import json
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
 from pycrypt.encryption import Encryption, AESCipher
-from .logging import Logger
+from vspherecollector.logger.handle import Logger
 
 
 LOGGERS = Logger()
@@ -14,7 +14,7 @@ class Credential:
 
     def __init__(self, username):
         logger = LOGGERS.get_logger('credential_init')
-        logger.info("RSAPriv: {}, RSASecret: {}".format(os.environ.get('RSAPrivateFile' or None), os.environ.get('RSASecret' or None)))
+        logger.debug("RSAPriv: {}, RSASecret: {}".format(os.environ.get('RSAPrivateFile' or None), os.environ.get('RSASecret' or None)))
         self.username = username
         self.session = requests.Session()
         self.session.verify = False
@@ -36,11 +36,11 @@ class Credential:
                 self.username
             )
 
-        logger.info("Credstore URI: {}".format(credstore_uri))
+        logger.debug("Credstore URI: {}".format(credstore_uri))
 
         response = self.session.get(url=credstore_uri)
         data = json.loads(response.text)
-        logger.info("API results: {}".format(data.__str__()))
+        logger.debug("API results: {}".format(data.__str__()))
         self.decipher(
             shared_key=data[0].get('secret' or None)[0].get('shared_key' or None),
             password=data[0].get('secret' or None)[0].get('password' or None)

@@ -3,13 +3,15 @@ import os
 import re
 import ssl
 import atexit
+import logging
 from datetime import datetime
 from datetime import timedelta
 from pyVmomi import vim
 from pyVmomi import vmodl
 from pyVim import connect
-from .logging import Logger
-from .credentials.credstore import Credential, AESCipher
+from pycrypt.encryption import AESCipher
+from vspherecollector.vmware.credentials.credstore import Credential
+from vspherecollector.logger.handle import Logger
 
 
 LOGGERS = Logger()
@@ -38,7 +40,7 @@ class Vcenter:
     """
     Vcenter class handles basic vcenter methods such as connect, disconnect, get_container_view, ect
     """
-    def __init__(self, name, username=None, password=None, ssl_context=None):
+    def __init__(self, name, username=None, password=None, ssl_context=None, _loggers=None):
         self.cipher = AESCipher()
         self.si = None
         self.content = None
@@ -48,6 +50,10 @@ class Vcenter:
         self.username = username
         self.__password = self.store_password(password)
         self.ssl_context = ssl_context
+
+        if _loggers:
+            global LOGGERS
+            LOGGERS = _loggers
 
     def store_password(self, password):
         if password:
@@ -77,20 +83,20 @@ class Vcenter:
             logger.debug('Getting Credential Information')
 
             if not self.__password and not self.username:
-                logger.debug('No username or password provided. Will read from credstore')
+                logger.debug('No username and password provided. Will read from credstore for default account')
                 cred = Credential('oppvfog01')
                 cred_dict = cred.get_credential()
                 self.username = cred_dict.get('username', None)
                 self.__password = self.store_password(cred_dict.get('password', None))
                 cred_dict = None
             elif self.username and not self.__password:
-                logger.debug('No username or password provided. Will read from credstore')
+                logger.debug('Username provided but no Password. Will retrieve password from credstore')
                 cred = Credential(self.username)
                 cred_dict = cred.get_credential()
                 self.username = cred_dict.get('username', None)
                 self.__password = self.store_password(cred_dict.get('password', None))
                 cred_dict = None
-            logger.info('Conecting to vCenter {}'.format(self.vcenter))
+            logger.info('Connecting to vCenter {}'.format(self.vcenter))
             logger.debug(
                 'Connection Params: vCenter: {}, Username: {}, {}, SSL_Context: {}'.format(self.vcenter,
                                                                                            self.username,
@@ -118,9 +124,11 @@ class Vcenter:
             logger.exception('Exception: {} \n Args: {}'.format(e, e.args))
 
     def disconnect(self):
+        logger = LOGGERS.get_logger('connect_vcenter')
+        logger.info('Disconnecting vCenter {}'.format(self.vcenter))
         connect.Disconnect(self.si)
 
-    def get_container_view(self, view_type, search_root=None, filter_expression=None):
+    def get_container_view(self, view_type, search_root=None, filter_expression=None, recursive=True):
         """
         Custom container_view function that allows the option for a filtered expression such as name == john_doe
         This is similar to the Where clause in powershell, however, this is case sensative.
@@ -128,6 +136,7 @@ class Vcenter:
         :param view_type: MoRef type [vim.VirtualMachine] , [vim.HostSystem], [vim.ClusterComputeResource], ect
         :param search_root: ManagedObject to search from, by default this is rootFolder
         :param filter_expression: Only return results that match this expression
+        :param recursive: True|False
         :return: list of ManagedObjects
         """
 
@@ -177,7 +186,7 @@ class Vcenter:
                 return objs
             elif operator == '!=':
                 for o in result:
-                    if o.propSet[0].val != value:
+                    if not o.propSet[0].val == value:
                         objs.append(o.obj)
                 return objs
             elif operator == '>':
@@ -264,11 +273,11 @@ class Vcenter:
 
         view_reference = self.content.viewManager.CreateContainerView(container=search_root,
                                                                       type=view_type,
-                                                                      recursive=True)
+                                                                      recursive=recursive)
         view = view_reference.view
         view_reference.Destroy()
 
-        if filter_expression:
+        if filter_expression and view:
 
             expression_obj = break_down_expression(filter_expression)
 
@@ -355,18 +364,21 @@ class Vcenter:
             return 'CLUSTER'
 
     @staticmethod
-    def get_QuerySpec(managed_object, metric_id=None, get_sample=False):
+    def get_QuerySpec(managed_object, metric_id=None, get_sample=False, vm_sample_size=15, host_sample_size=15):
         """
         This will return a QuerySpec based on the managed_object type provided.
-        vim.HostSystem and vim.VirtualMachine both have realtime stats, however, vim.ClusterComputeResource only has daily.
-        TODO: to make this more dynamic, could pass in the # of samples instead of hardcoded 15 (5 minutes)
+        vim.HostSystem and vim.VirtualMachine both have realtime stats, however,
+        vim.ClusterComputeResource only has daily.
         :param managed_object:
-        :param metric_id_dict:
+        :param metric_id:
+        :param get_sample:
+        :param vm_sample_size:
+        :param host_sample_size:
         :return:
         """
         # TODO: Provide the sample sizes via config file
-        vm_sample = 15
-        host_sample = 15
+        vm_sample = vm_sample_size
+        host_sample = host_sample_size
 
         if isinstance(managed_object, vim.ClusterComputeResource):
             # Define QuerySpec for ClusterComputeResource
@@ -460,7 +472,6 @@ class Vcenter:
                     'mem.reservedCapacity.average',
                     'mem.shared.average',
                     'mem.sharedcommon.average',
-                    'mem.state.latest',
                     'mem.swapin.average',
                     'mem.swapinRate.average',
                     'mem.swapout.average',

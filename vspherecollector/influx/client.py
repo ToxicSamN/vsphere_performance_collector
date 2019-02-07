@@ -1,10 +1,20 @@
 
 import queue
-from .logging import Logger
+import logging
+from vspherecollector.logger.handle import Logger
 from influxdb import InfluxDBClient
+#from ..collect_metrics import Args
 
 
-LOGGERS = Logger(log_file='/var/log/vcenter_influx.log', error_log_file='/var/log/vcenter_influx_err.log')
+# args = Args()
+# log_level = logging.INFO
+# if args.DEBUG:
+#     log_level = logging.DEBUG
+# args = None
+
+
+LOGGERS = Logger(log_file='/var/log/vcenter_collector/influx.log',
+                 error_log_file='/var/log/vcenter_collector/influx_err.log')
 
 
 class InfluxDB:
@@ -77,5 +87,7 @@ class InfluxDB:
                     logger.debug("Influx Complete")
                     queue_empty_flag = 1
                 pass
+            except BaseException as e:
+                logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
         logger.info('InfluxDB process Stopped')
