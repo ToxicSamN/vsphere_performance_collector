@@ -1,4 +1,4 @@
-VERSION = "2.0.5"
+VERSION = "2.1.0"
 
 import sys
 import os
@@ -248,6 +248,7 @@ if __name__ == '__main__':
         # elif args.MOREF_TYPE.lower() == 'host':
         #     sample_size = Vcenter.get_QuerySpec(vim.HostSystem, get_sample=True)
         main_program_running_threshold = (sample_size * 20) - 5  # 1 sample is 20 seconds
+        over_watch_threshold = (24 * 60) - 13  # 24 hours x 60 seconds - 3 seconds
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
@@ -262,10 +263,28 @@ if __name__ == '__main__':
 
         # Setup the background processes
         proc_pool = new_bg_agents(cpu_count(), sq, iq, aq, atq, args.vcenterNameOrIP)
+        watch_24_start = datetime.now()
 
         # This code will be ran from a systemd service
         # so this needs to be an infinite loop
         while True:
+
+            watch_24_now = datetime.now()
+            watch_delta = watch_24_now - watch_24_start
+            if watch_delta.seconds >= over_watch_threshold:
+                logging.info(
+                    "Overall runtime running {} seconds. Restarting the program to flush memory and processes".format(
+                        watch_delta.seconds))
+                # Exit the agent.
+                # Wait for the influx_q to be flushed
+                while not iq.empty():
+                    root_logger.debug('Waiting on the influx_q to flush out before restarting the program...')
+
+                # Since the agent should be ran as a service then the agent should automatically be restarted
+                for proc in proc_pool:
+                    proc.terminate()
+                sys.exit(-1)
+
             # check if the background process for parsing and influx are still running
             check_bg_process(proc_pool=proc_pool)
 
