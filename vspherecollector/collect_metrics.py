@@ -1,4 +1,4 @@
-VERSION = "2.1.0"
+VERSION = "2.1.5"
 
 import sys
 import os
@@ -27,7 +27,7 @@ from vspherecollector.args.handle import Args
 """ 
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
- with as granular sampling as possible, in which case for VMware is 20 second sample intervals.
+ with as granular sampling as possible, in which case for VMware is 20 second sample intervals. 
 """
 
 
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     args = Args()
     root_logger = LOGGERS.get_logger("{}:{}".format(args.MOREF_TYPE, __name__))
     try:
-        root_logger.info('Code Version : {}'.format(VERSION))
+        # root_logger.info('Code Version : {}'.format(VERSION))
         error_count = 0
         sample_size = 3  # default sample_size value of 3 samples or 1 minute
         vcenter_pool = []
@@ -248,7 +248,7 @@ if __name__ == '__main__':
         # elif args.MOREF_TYPE.lower() == 'host':
         #     sample_size = Vcenter.get_QuerySpec(vim.HostSystem, get_sample=True)
         main_program_running_threshold = (sample_size * 20) - 5  # 1 sample is 20 seconds
-        over_watch_threshold = (24 * 60) - 13  # 24 hours x 60 seconds - 3 seconds
+        over_watch_threshold = (24 * (60 * 60)) - 13  # 24 hours x 60 seconds - 3 seconds
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
@@ -268,9 +268,10 @@ if __name__ == '__main__':
         # This code will be ran from a systemd service
         # so this needs to be an infinite loop
         while True:
-
+            root_logger.info('Code Version : {}'.format(VERSION))
             watch_24_now = datetime.now()
             watch_delta = watch_24_now - watch_24_start
+            root_logger.info("Service Time Remaining Before Service Restart: {} second(s)".format((over_watch_threshold - watch_delta.seconds)))
             if watch_delta.seconds >= over_watch_threshold:
                 logging.info(
                     "Overall runtime running {} seconds. Restarting the program to flush memory and processes".format(
@@ -390,4 +391,13 @@ if __name__ == '__main__':
             if v.content:
                 v.disconnect()
     except BaseException as e:
-        root_logger.exception('Exception: {} \n Args: {}'.format(e, e.args))
+        if isinstance(e, SystemExit):
+            logging.info('Agent exiting..')
+            logging.info('Process pool terminating..')
+            for proc in proc_pool:
+                proc.terminate()
+            for v in vcenter_pool:
+                if v.content:
+                    v.disconnect()
+        else:
+            root_logger.exception('Exception: {} \n Args: {}'.format(e, e.args))

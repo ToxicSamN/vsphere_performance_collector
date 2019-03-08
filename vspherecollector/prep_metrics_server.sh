@@ -27,11 +27,11 @@ do
 	case "$1" in 
 		-p | --python-download-link)	
 			shift
-			$PYTHON_LINK="$1"
+			PYTHON_LINK="$1"
 			;;
 		-t | --telegraf-download-link)	
 			shift
-			$TELEGRAF_LINK="$1"
+			TELEGRAF_LINK="$1"
 			;;
 		-u | --git-user)	
 			shift
@@ -108,6 +108,11 @@ sudo rm -f /tmp/telegraf*
 
 # Need to setup the 3rd hard disk using LVM
 #  You should verify that /dev/sdc is the correct device for your 3rd hard disk before continuing
+for BUS in /sys/class/scsi_host/host*/scan
+do
+   echo "- - -" >  ${BUS}
+done
+
 sudo pvcreate /dev/sdc
 sudo vgcreate vg01 /dev/sdc
 sudo lvcreate -l 100%FREE -n vol01 vg01

@@ -136,25 +136,7 @@ class Parser:
         try:
             logger.debug('datum type: {}, datum: {}'.format(type(datum), datum))
             json_series = []
-            if isinstance(datum, list):
-                for data in datum:
-                    sample_data = self._parse_sample_data(data.sample_info_csv)
-                    for metric in data.stat_value_csv:
-                        if metric.metric_instance is None or metric.metric_instance == '':
-                            metric.metric_instance = 'all'
-                        if ds_map.get(metric.metric_instance or None):
-                            metric.metric_instance = ds_map[metric.metric_instance]
-                        tags = {
-                            "host": str(data.moref_name.lower()),
-                            "location": str(datacenter),
-                            "type": str(data.moref_type),
-                            "cluster": str(cluster),
-                            "vcenter": str(vcenter),
-                            "instance": metric.metric_instance,
-                        }
-                        json_series.append(self._format_json(metric, sample_data, tags))
-
-            elif isinstance(datum, QueryResult):
+            if isinstance(datum, QueryResult):
                 logger.debug('datum is QueryResult')
                 data = datum
                 logger.debug('build meta lookup dict')
@@ -182,22 +164,24 @@ class Parser:
                         json_data = []
                         for index in meta_lookup[meta][instance]:
                             _data = data.stat_value_csv[index]
-                            json_data = self._format_json2(meta, _data, tags, sample_data, json_data)
+                            json_data = self._format_json(meta, _data, tags, sample_data, json_data)
 
                         json_series.append(json_data)
+            else:
+                raise TypeError('Unexpected type: {}. Requires type: {}'.format(type(datum), QueryResult))
             return json_series
         except BaseException as e:
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
         return None
 
     @staticmethod
-    def _format_json2(measurement, metric, tags, sample_data, json_series=[]):
+    def _format_json(measurement, metric, tags, sample_data, json_series=[]):
         logger = LOGGERS.get_logger('Parser _format_json')
         logger.debug('starting _format_json: measurement: {}, tags: {}'.format(measurement, tags))
         try:
             _json_series = []
             if not isinstance(tags, dict):
-                raise TypeError("Parameter 'tags' expected type dict but recieved type '{}'".format(type(tags)))
+                raise TypeError("Parameter 'tags' expected type dict but received type '{}'".format(type(tags)))
 
             for data in zip(metric.metric_value_csv.split(','), sample_data):
                 sample_time = datetime.utcfromtimestamp(data[1].sample_time.timestamp())
@@ -234,51 +218,11 @@ class Parser:
                         'tags': tags,
                     }
                     _json_series.append(json_data)
-            # logger.debug('json_data: {}'.format(_json_series))
+            logger.debug('json_data: {}'.format(_json_series))
             return _json_series
         except BaseException as e:
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
         return None
-
-    @staticmethod
-    def _format_json(metric, sample_data, tags):
-        json_series = []
-
-        if not isinstance(tags, dict):
-            raise TypeError("Parameter 'tags' expected type dict but received type '{}'".format(type(tags)))
-
-        logger = LOGGERS.get_logger('Parser _format_json')
-        for data in zip(metric.metric_value_csv.split(','), sample_data):
-            sample_time = datetime.utcfromtimestamp(data[1].sample_time.timestamp())
-            influx_time = sample_time.__str__()
-            val = data[0]
-
-            if metric.metric_name == "cpu.ready.summation":
-                # CPU Ready is calculated as
-                # time_in_ms / (sample_interval *1000) and then multiply by 100 to get %
-                percent_ready = (float(val) / (float(sample_data[0].sample_interval) * 1000)) * 100
-                value = float(percent_ready)
-            elif metric.metric_unit == 'percent':
-                value = float(val) / 100
-            else:
-                if val is None or val == '':
-                    value = float(0.0)
-                else:
-                    value = float(val)
-
-            # if metric.metric_name == 'cpu.usage.average':
-            #     print(type(value))
-            json_data = {
-                'time': influx_time,
-                'measurement': str(metric.metric_name),
-                'fields': {
-                    'metric_value': float(value)
-                },
-                'tags': tags,
-            }
-            json_series.append(json_data)
-
-        return json_series
 
     @staticmethod
     def get_meta(metric_list):
