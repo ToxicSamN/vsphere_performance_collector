@@ -355,6 +355,7 @@ if __name__ == '__main__':
 
                 exec_time_delta = end_time - start_time
                 sleep_time = main_program_running_threshold - int(exec_time_delta.seconds)
+                root_logger.info('Waiting for {} seconds to start again.'.format(sleep_time))
                 if sleep_time >= 1:
                     time.sleep(sleep_time)
                 time.sleep(1)
