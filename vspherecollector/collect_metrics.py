@@ -36,7 +36,7 @@ sys.path.append(BASE_DIR)
 
 args = Args()
 
-log_setup = LoggerSetup(yaml_file='{}/vcenterdd/logging_config.yml'.format(BASE_DIR))
+log_setup = LoggerSetup(yaml_file='{}/logging_config.yml'.format(BASE_DIR))
 if args.DEBUG:
     log_setup.set_loglevel(loglevel='DEBUG')
 else:
