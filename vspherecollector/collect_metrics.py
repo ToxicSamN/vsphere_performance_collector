@@ -1,4 +1,10 @@
-VERSION = "2.1.5"
+"""
+This script very specific to the vmcollector VMs being used to collect VM performance data.
+ Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
+ with as granular sampling as possible, in which case for VMware is 20 second sample intervals.
+"""
+
+VERSION = "2.2.0"
 
 import sys
 import os
@@ -20,26 +26,28 @@ from vspherecollector.statsd.agent import Statsd
 from vspherecollector.statsd.collector import StatsCollector
 from vspherecollector.statsd.parse import Parser
 from vspherecollector.influx.client import InfluxDB
-from vspherecollector.logger.handle import Logger
+from vspherecollector.log.setup import LoggerSetup
 from vspherecollector.args.handle import Args
 
 
-""" 
-This script very specific to the vmcollector VMs being used to collect VM performance data.
- Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
- with as granular sampling as possible, in which case for VMware is 20 second sample intervals. 
-"""
-
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+parent_dir = BASE_DIR.replace(os.path.basename(BASE_DIR), '')
+sys.path.append(BASE_DIR)
 
 args = Args()
-# log_level = logging.INFO
-# if args.DEBUG:
-#     log_level = logging.DEBUG
-LOGGERS = Logger()
+
+log_setup = LoggerSetup(yaml_file='{}/vcenterdd/logging_config.yml'.format(BASE_DIR))
+if args.DEBUG:
+    log_setup.set_loglevel(loglevel='DEBUG')
+else:
+    log_setup.set_loglevel(loglevel='INFO')
+log_setup.setup()
+
+logger = logging.getLogger(__name__)
 
 
 def new_bg_agents(num, sq, iq, aq, atq, vcenter_list):
-    logger = LOGGERS.get_logger('new_bg_agents')
+    logger = logging.getLogger('{}.new_bg_agents'.format(__name__))
     try:
         args = Args()
         proc_pool = []
@@ -79,7 +87,7 @@ def new_bg_agents(num, sq, iq, aq, atq, vcenter_list):
 
 
 def check_bg_process(proc_pool=[], proc=None):
-    logger = LOGGERS.get_logger('check_bg_processes')
+    logger = logging.getLogger('{}.check_bg_processes'.format(__name__))
     try:
         if proc:
             if not proc.is_alive():
@@ -104,7 +112,7 @@ def check_bg_process(proc_pool=[], proc=None):
 
 def waiter(process_pool, timeout_secs=60):
 
-    logger = LOGGERS.get_logger('Process Waiter')
+    logger = logging.getLogger('{}.waiter'.format(__name__))
     start_time = datetime.now()
     proc_status = {}
     for proc in process_pool:
@@ -135,12 +143,13 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
     This is the main worker. The dude abides!
     :return:
     """
-    log_level = logging.INFO
-    if args.DEBUG:
-        log_level = logging.DEBUG
-
-    LOGGERS = Logger(log_level=log_level)
-    main_logger = LOGGERS.get_logger('main')
+    # log_level = logging.INFO
+    # if args.DEBUG:
+    #     log_level = logging.DEBUG
+    #
+    # LOGGERS = Logger(log_level=log_level)
+    # main_logger = LOGGERS.get_logger('main')
+    main_logger = logging.getLogger('{}.main_func'.format(__name__))
     all_views = []
     vc = vcenter
     try:
@@ -236,7 +245,7 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
 
 if __name__ == '__main__':
     args = Args()
-    root_logger = LOGGERS.get_logger("{}:{}".format(args.MOREF_TYPE, __name__))
+
     try:
         # root_logger.info('Code Version : {}'.format(VERSION))
         error_count = 0
@@ -268,10 +277,10 @@ if __name__ == '__main__':
         # This code will be ran from a systemd service
         # so this needs to be an infinite loop
         while True:
-            root_logger.info('Code Version : {}'.format(VERSION))
+            logger.info('Code Version : {}'.format(VERSION))
             watch_24_now = datetime.now()
             watch_delta = watch_24_now - watch_24_start
-            root_logger.info("Service Time Remaining Before Service Restart: {} second(s)".format((over_watch_threshold - watch_delta.seconds)))
+            logger.info("Service Time Remaining Before Service Restart: {} second(s)".format((over_watch_threshold - watch_delta.seconds)))
             if watch_delta.seconds >= over_watch_threshold:
                 logging.info(
                     "Overall runtime running {} seconds. Restarting the program to flush memory and processes".format(
@@ -279,7 +288,7 @@ if __name__ == '__main__':
                 # Exit the agent.
                 # Wait for the influx_q to be flushed
                 while not iq.empty():
-                    root_logger.debug('Waiting on the influx_q to flush out before restarting the program...')
+                    logger.debug('Waiting on the influx_q to flush out before restarting the program...')
 
                 # Since the agent should be ran as a service then the agent should automatically be restarted
                 for proc in proc_pool:
@@ -308,7 +317,7 @@ if __name__ == '__main__':
                 if start_main:
                     start_main = False
                     start_time = datetime.now()
-                    root_logger.info('Executing MAIN Processes...')
+                    logger.info('Executing MAIN Processes...')
                     # execute the main function as a process so that it can be monitored for running time
                     process_pool = []
                     vcenter_pool = []
@@ -337,7 +346,7 @@ if __name__ == '__main__':
                             # process ran longer than 60 seconds and since collection times are in 60 second intervals
                             # this main process needs to be terminated and restarted
                             proc.terminate()
-                            root_logger.error(
+                            logger.error(
                                 'MAIN process {} running too long. Start Time: {}, End Time: {}'.format(proc.name,
                                                                                                         start_time.ctime(),
                                                                                                         datetime.now().ctime()))
@@ -346,7 +355,7 @@ if __name__ == '__main__':
                             # TODO: add an alerting module that sends an alert either through email or snmp
 
                     end_time = datetime.now()
-                    root_logger.info('Execution Completed in {} seconds'.format((end_time - start_time).seconds))
+                    logger.info('Execution Completed in {} seconds'.format((end_time - start_time).seconds))
 
                 # evaluate the timing to determine how long to sleep
                 #  since pulling X minutes of perf data then should sleep
@@ -355,7 +364,7 @@ if __name__ == '__main__':
 
                 exec_time_delta = end_time - start_time
                 sleep_time = main_program_running_threshold - int(exec_time_delta.seconds)
-                root_logger.info('Waiting for {} seconds to start again.'.format(sleep_time))
+                logger.info('Waiting for {} seconds to start again.'.format(sleep_time))
                 if sleep_time >= 1:
                     time.sleep(sleep_time)
                 time.sleep(1)
@@ -373,7 +382,7 @@ if __name__ == '__main__':
                         if v.content:
                             v.disconnect()
                     break
-                root_logger.exception('Exception: {} \n Args: {}'.format(e, e.args))
+                logger.exception('Exception: {} \n Args: {}'.format(e, e.args))
                 start_main = True
                 time.sleep(1)
                 for v in vcenter_pool:
@@ -401,4 +410,4 @@ if __name__ == '__main__':
                 if v.content:
                     v.disconnect()
         else:
-            root_logger.exception('Exception: {} \n Args: {}'.format(e, e.args))
+            logger.exception('Exception: {} \n Args: {}'.format(e, e.args))

@@ -1,20 +1,20 @@
 import os
 import requests
 import json
+import logging
 from urllib3 import disable_warnings
 from urllib3.exceptions import InsecureRequestWarning
 from pycrypt.encryption import Encryption, AESCipher
-from vspherecollector.logger.handle import Logger
+from vspherecollector.log.setup import addClassLogger
+
+logger = logging.getLogger(__name__)
 
 
-LOGGERS = Logger()
-
-
+@addClassLogger
 class Credential:
 
     def __init__(self, username):
-        logger = LOGGERS.get_logger('credential_init')
-        logger.debug("RSAPriv: {}, RSASecret: {}".format(os.environ.get('RSAPrivateFile' or None), os.environ.get('RSASecret' or None)))
+        self.__log.debug("RSAPriv: {}, RSASecret: {}".format(os.environ.get('RSAPrivateFile' or None), os.environ.get('RSASecret' or None)))
         self.username = username
         self.session = requests.Session()
         self.session.verify = False
@@ -24,7 +24,6 @@ class Credential:
         self.__secret = open(os.environ.get('RSASecret' or None), 'r').read().strip()
 
     def get_credential(self, dev=False):
-        logger = LOGGERS.get_logger('get_credential')
         if dev:
             credstore_uri = 'https://credstore-dev/credentialstore/GetCredential?ClientId={}&username={}'.format(
                 os.environ['ClientId'],
@@ -36,11 +35,11 @@ class Credential:
                 self.username
             )
 
-        logger.debug("Credstore URI: {}".format(credstore_uri))
+        self.__log.debug("Credstore URI: {}".format(credstore_uri))
 
         response = self.session.get(url=credstore_uri)
         data = json.loads(response.text)
-        logger.debug("API results: {}".format(data.__str__()))
+        self.__log.debug("API results: {}".format(data.__str__()))
         self.decipher(
             shared_key=data[0].get('secret' or None)[0].get('shared_key' or None),
             password=data[0].get('secret' or None)[0].get('password' or None)

@@ -4,19 +4,11 @@ from pyVmomi import SoapAdapter, vim
 from dateutil import parser as timeparser
 from datetime import datetime
 from vspherecollector.statsd.agent import QueryResult
-from vspherecollector.logger.handle import Logger
+from vspherecollector.log.setup import addClassLogger
 
 
-
-#
-# args = Args()
-# log_level = logging.INFO
-# if args.DEBUG:
-#     log_level = logging.DEBUG
-# args = None
-
-LOGGERS = Logger(log_file='/var/log/vcenter_collector/parser.log',
-                 error_log_file='/var/log/vcenter_collector/parser_err.log')
+# LOGGERS = Logger(log_file='/var/log/vcenter_collector/parser.log',
+#                  error_log_file='/var/log/vcenter_collector/parser_err.log')
 
 
 class SampleInfo:
@@ -26,12 +18,12 @@ class SampleInfo:
         self.sample_time = timestamp
 
 
+@addClassLogger
 class Parser:
 
     def __init__(self, statsq, influxq):
         self.in_q = statsq
         self.out_q = influxq
-        self.logger = LOGGERS.get_logger('Parser')
 
         self._run()
 
@@ -41,10 +33,8 @@ class Parser:
         queue to be able to parse the data to json.
         :return: None
         """
-        # establish the logger
-        logger = self.logger
-        logger.info('Parser process Started')
-        logger.info("Logging level: {}".format(LOGGERS.log_level))
+
+        self.__log.info('Parser process Started')
         data_series = []
         queue_empty_flag = 1
         # running as a background process and should be in an infinite loop
@@ -69,7 +59,7 @@ class Parser:
 
             except queue.Empty:
                 if queue_empty_flag == 0:
-                    logger.debug("Parser Complete")
+                    self.__log.debug("Parser Complete")
                     queue_empty_flag = 1
                 # keep looping waiting for the queue not to be empty
 
@@ -77,7 +67,7 @@ class Parser:
                 #     did you see this comment? If so you might win a prize, let me know!
                 pass
             except BaseException as e:
-                logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+                self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def _parse_data(self, data):
         """
@@ -86,36 +76,35 @@ class Parser:
         :return: json_series
         """
 
-        logger = LOGGERS.get_logger('Parser_data_parser')
         try:
-            logger.debug('_data_parser parsing data {}'.format(data))
+            self.__log.debug('_data_parser parsing data {}'.format(data))
             vcenter_name = list(data.keys())[0]
             data = data[vcenter_name]
             datacenter = data['datacenter']
             cluster = data['cluster']
             ds_map = data['ds_map']
             results = data['result']
-            logger.debug('vcenter: {}, dc: {}, cl: {}\nresults: {}'.format(vcenter_name,
+            self.__log.debug('vcenter: {}, dc: {}, cl: {}\nresults: {}'.format(vcenter_name,
                                                                            datacenter,
                                                                            cluster,
                                                                            results))
-            logger.debug('sending to prep_n_send_data')
+            self.__log.debug('sending to prep_n_send_data')
             json_series = self._prep_n_send_data(datum=results,
                                                  vcenter=vcenter_name,
                                                  datacenter=datacenter,
                                                  cluster=cluster,
                                                  ds_map=ds_map)
-            logger.debug("json_series size: {}".format(len(json_series)))
+            self.__log.debug("json_series size: {}".format(len(json_series)))
 
             return json_series
 
         except BaseException as e:
-            logger.error('Parsing error: \nvCenter: {}'.format(vcenter_name))
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.error('Parsing error: \nvCenter: {}'.format(vcenter_name))
+            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     @staticmethod
     def _parse_sample_data(sample_csv):
-        logger = LOGGERS.get_logger('_parse_sample_data')
+        logger = logging.getLogger('{}.Parser.parse_sample_data'.format(__name__))
         try:
             samplecsv = sample_csv.split(',')
             sample_info = [SampleInfo(samplecsv[index], timeparser.parse(samplecsv[index + 1])) for index
@@ -132,14 +121,14 @@ class Parser:
         :param vcenter:
         :return: json_series
         """
-        logger = self.logger
+
         try:
-            logger.debug('datum type: {}, datum: {}'.format(type(datum), datum))
+            self.__log.debug('datum type: {}, datum: {}'.format(type(datum), datum))
             json_series = []
             if isinstance(datum, QueryResult):
-                logger.debug('datum is QueryResult')
+                self.__log.debug('datum is QueryResult')
                 data = datum
-                logger.debug('build meta lookup dict')
+                self.__log.debug('build meta lookup dict')
                 for metric in data.stat_value_csv:
                     if metric.metric_instance is None or metric.metric_instance == '':
                         metric.metric_instance = 'all'
@@ -147,11 +136,11 @@ class Parser:
                         metric.metric_instance = ds_map[metric.metric_instance]
                 meta_lookup = self.get_meta(data.stat_value_csv)
                 sample_data = self._parse_sample_data(data.sample_info_csv)
-                logger.debug('Meta_lookup: {}, sample_data: {}'.format(meta_lookup, sample_data))
+                self.__log.debug('Meta_lookup: {}, sample_data: {}'.format(meta_lookup, sample_data))
                 for meta in list(meta_lookup.keys()):
-                    logger.debug('Meta: {}'.format(meta))
+                    self.__log.debug('Meta: {}'.format(meta))
                     for instance in list(meta_lookup[meta].keys()):
-                        logger.debug('metric instance: {}'.format(instance))
+                        self.__log.debug('metric instance: {}'.format(instance))
                         tags = {
                             "host": str(data.moref_name.lower()),
                             "location": str(datacenter),
@@ -160,7 +149,7 @@ class Parser:
                             "vcenter": str(vcenter),
                             "instance": str(instance),
                         }
-                        logger.debug('tags: {}'.format(tags))
+                        self.__log.debug('tags: {}'.format(tags))
                         json_data = []
                         for index in meta_lookup[meta][instance]:
                             _data = data.stat_value_csv[index]
@@ -171,12 +160,12 @@ class Parser:
                 raise TypeError('Unexpected type: {}. Requires type: {}'.format(type(datum), QueryResult))
             return json_series
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
         return None
 
     @staticmethod
     def _format_json(measurement, metric, tags, sample_data, json_series=[]):
-        logger = LOGGERS.get_logger('Parser _format_json')
+        logger = logging.getLogger('{}.Parser.format_json'.format(__name__))
         logger.debug('starting _format_json: measurement: {}, tags: {}'.format(measurement, tags))
         try:
             _json_series = []
@@ -226,7 +215,7 @@ class Parser:
 
     @staticmethod
     def get_meta(metric_list):
-        logger = LOGGERS.get_logger('get_meta')
+        logger = logging.getLogger('{}.Parser.get_meta'.format(__name__))
         try:
             meta_lookup = {}
             index_track = 0

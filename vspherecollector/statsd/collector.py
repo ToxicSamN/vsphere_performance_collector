@@ -2,6 +2,7 @@ import numpy
 import math
 import uuid
 import queue
+import logging
 from timeit import timeit
 from datetime import datetime
 from pyVmomi import vim, SoapAdapter, vmodl
@@ -9,19 +10,16 @@ from multiprocessing.dummy import Pool as tPool
 from multiprocessing.pool import Pool, MapResult, mapstar, RUN
 from multiprocessing import cpu_count
 from vspherecollector.logger.handle import Logger
-#from vspherecollector.collect_metrics import Args
-
-# args = Args()
-# log_level = logging.INFO
-# if args.DEBUG:
-#     log_level = logging.DEBUG
-# args = None
+from vspherecollector.log.setup import addClassLogger
 
 
-LOGGERS = Logger(log_file='/var/log/vcenter_collector/stats.log',
-                 error_log_file='/var/log/vcenter_collector/stats_err.log')
+logger = logging.getLogger(__name__)
 
 
+# LOGGERS = Logger(log_file='/var/log/vcenter_collector/stats.log',
+#                  error_log_file='/var/log/vcenter_collector/stats_err.log')
+
+@addClassLogger
 class CustomObject(object):
     """ Because I came from powershell I was really spoiled with New-Object PSObject
     So I created a class that acts similar in which I can add and remove properties.
@@ -41,6 +39,7 @@ class CustomObject(object):
         delattr(self, property_name)
 
 
+@addClassLogger
 class CollectorProcessPool(Pool):
     """
         Strictly for debugging purposes. There is no other value here for this class.
@@ -80,6 +79,7 @@ class CollectorProcessPool(Pool):
         return result
 
 
+@addClassLogger
 class Perf:
 
     def __init__(self, name, key, unit):
@@ -88,6 +88,7 @@ class Perf:
         self.unit = unit
 
 
+@addClassLogger
 class PerfInfo(object):
     """ This will create a performance counter dict object """
 
@@ -98,7 +99,7 @@ class PerfInfo(object):
         self.metricIDs = []
 
     def get_info(self, vcenter):
-        logger = LOGGERS.get_logger('PerfInfo__get_info')
+        logger = logging.getLogger('{}.get_info'.format(self.__log.name))
         try:
             # getting all of the available metrics from vCenter for ALL moRefs and store them in dictionaries for lookups
             perf_counter_list = vcenter.content.perfManager.perfCounter
@@ -115,7 +116,7 @@ class PerfInfo(object):
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def update(self, perf_obj):
-        logger = LOGGERS.get_logger('PerfInfo__update')
+        logger = logging.getLogger('{}.update'.format(self.__log.name))
         try:
             self.perf_counter_byName[perf_obj.name] = perf_obj
             self.perf_counter_byId[perf_obj.key] = perf_obj
@@ -123,7 +124,7 @@ class PerfInfo(object):
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def get_counterIDs(self, vcenter, entity):
-        logger = LOGGERS.get_logger('PerfInfo__get_counterIDs')
+        logger = logging.getLogger('{}.get_counterIDs'.format(self.__log.name))
         try:
             for metric in vcenter.get_primary_metrics(entity):
                 if not self.counterIDs.__contains__(self.perf_counter_byName[metric].key):
@@ -132,14 +133,14 @@ class PerfInfo(object):
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def get_metricIDs(self):
-        logger = LOGGERS.get_logger('PerfInfo__get_metricIDs')
+        logger = logging.getLogger('{}.get_metricIDs'.format(self.__log.name))
         try:
             self.metricIDs = [vim.PerformanceManager.MetricId(counterId=c, instance="*") for c in self.counterIDs]
         except BaseException as e:
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def serialize(self):
-        logger = LOGGERS.get_logger('PerfInfo__serialize')
+        logger = logging.getLogger('{}.serialize'.format(self.__log.name))
         try:
             from pyVmomi import SoapAdapter
             self.metricIDs = [SoapAdapter.Serialize(mid) for mid in self.metricIDs]
@@ -147,7 +148,7 @@ class PerfInfo(object):
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def deserialize(self):
-        logger = LOGGERS.get_logger('PerfInfo__deserialize')
+        logger = logging.getLogger('{}.deserialize'.format(self.__log.name))
         try:
             from pyVmomi import SoapAdapter
             self.metricIDs = [SoapAdapter.Deserialize(mid) for mid in self.metricIDs]
@@ -155,6 +156,7 @@ class PerfInfo(object):
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
 
+@addClassLogger
 class QueryResult:
 
     class Metric:
@@ -195,6 +197,7 @@ class QueryResult:
             return 'CLUSTER'
 
 
+@addClassLogger
 class StatsCollector:
     """
         This class is used as a statistics collector of specific devices for the UCS.
@@ -221,7 +224,7 @@ class StatsCollector:
             return 256
 
     def create_querySpec(self, view):
-        logger = LOGGERS.get_logger('_create_querySpec')
+        logger = logging.getLogger('{}.create_querySpec'.format(self.__log.name))
         try:
             _qspec = self.vcenter.get_QuerySpec(view, self.perf_info.metricIDs)
             self.querySpecs.append(SoapAdapter.Serialize(_qspec))
@@ -238,8 +241,8 @@ class StatsCollector:
         :param statsq: processing queue
         :return: None ( data is stored into statsq )
         """
-        logger = LOGGERS.get_logger('statsd')
-        logger.info('StatsCollector statsd started')
+
+        self.__log.info('StatsCollector statsd started')
         # Define the number os parallel processes to run, typically the best results are cpu_count()
         # experiment with the sizing to determine the best number
         parallelism_thread_count = cpu_count()
@@ -256,7 +259,7 @@ class StatsCollector:
                                           entity=view_list[0][0])
             self.perf_info.get_metricIDs()
 
-            logger.info('Start query spec creation and mapping')
+            self.__log.info('Start query spec creation and mapping')
             q_id_tracker = {}
             dc_cl_map = {}
             for mo in view_list:
@@ -269,12 +272,12 @@ class StatsCollector:
                 })
             all_ds = self.vcenter.get_container_view([vim.Datastore])
             ds_map = self.map_filtered_objs(self.vcenter, all_ds, vim.Datastore, ['name', 'info.url'])
-            logger.info('Start Query of QuerySpecs')
+            self.__log.info('Start Query of QuerySpecs')
             if len(self.querySpecs) >= self.get_max_spec_size(self.vcenter):
                 array_size = math.ceil(len(self.querySpecs)/self.get_max_spec_size(self.vcenter))
             else:
                 array_size = 1
-            logger.info('Splitting the querySpecs into equal sized chunks of {}'.format(array_size))
+                self.__log.info('Splitting the querySpecs into equal sized chunks of {}'.format(array_size))
             qSpec_chunks = [qSpecs for qSpecs in numpy.array_split(self.querySpecs, array_size)]
             self.perf_info.serialize()
             for qSpecs in qSpec_chunks:
@@ -296,8 +299,8 @@ class StatsCollector:
                     pass
 
         except BaseException as e:
-            logger.error('Parralelism Count: {}, ThreadCount: {}, \n ThreadArgs: {}'.format(parallelism_thread_count, thread, thread_pool_args))
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.error('Parralelism Count: {}, ThreadCount: {}, \n ThreadArgs: {}'.format(parallelism_thread_count, thread, thread_pool_args))
+            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     @staticmethod
     def _query_thread_pool_map(func_args_array, pool_size=2):
@@ -308,7 +311,7 @@ class StatsCollector:
         :param pool_size: Defines the number of parallel processes to be executed at once
         """
         # TODO ERROR HANDLING HERE
-        logger = LOGGERS.get_logger('Process Mapping')
+        logger = logging.getLogger('{}.StatsCollector._query_thread_pool_map'.format(__name__))
         try:
             logger.info('Mapping Processes')
             # Define the process pool size, or number of parallel processes
@@ -326,7 +329,7 @@ class StatsCollector:
     @staticmethod
     def _query_stats(thread_args):
 
-        logger = LOGGERS.get_logger('_query_stats')
+        logger = logging.getLogger('{}.StatsCollector._query_stats'.format(__name__))
         try:
             vcenter, query_specs, thread_id, statsq, perfinfo = thread_args
             """ The payload processor. This method is what is called in the multiprocess pool
@@ -373,7 +376,7 @@ class StatsCollector:
         :param prop:
         :return:
         """
-        logger = LOGGERS.get_logger('create_filter_spec')
+        logger = logging.getLogger('{}.StatsCollector.create_filter_spec'.format(__name__))
         try:
             objSpecs = []
 
@@ -392,7 +395,7 @@ class StatsCollector:
 
     @staticmethod
     def filter_props(vc, view, view_type, props):
-        logger = LOGGERS.get_logger('filter_props')
+        logger = logging.getLogger('{}.StatsCollector.filter_props'.format(__name__))
         try:
             property_collector = vc.content.propertyCollector
             filter_spec = StatsCollector.create_filter_spec(property_collector, view, view_type, props)
@@ -412,7 +415,7 @@ class StatsCollector:
 
     @staticmethod
     def map_filtered_objs(vc, view_objs, view_type, props):
-        logger = LOGGERS.get_logger('map_filtered_obj')
+        logger = logging.getLogger('{}.StatsCollector.map_filtered_obj'.format(__name__))
         try:
             objs_dict = {}
             props = StatsCollector.filter_props(vc, view_objs, view_type, props)
