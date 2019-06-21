@@ -26,10 +26,14 @@ class Args:
         parser.add_argument('-c', '--config-file', default='/etc/metrics/metrics.conf',
                             required=False, action='store',
                             help='identifies location of the config file')
+        parser.add_argument('-t', '--threshold', default=295,
+                            required=False, action='store',
+                            help='threshold for rerunning the code')
         cmd_args = parser.parse_args()
 
         self.DEBUG = cmd_args.debug
         self.MOREF_TYPE = cmd_args.collector_type
+        self.running_threshold = cmd_args.threshold
 
         # Parse through the provided conf
         parser = ConfigParser()

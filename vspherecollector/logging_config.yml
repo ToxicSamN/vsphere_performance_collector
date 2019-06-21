@@ -36,8 +36,8 @@ handlers:
         backupCount: 8
         formatter: standard
         encoding: utf8
-        
-    err_file: 
+
+    err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
         filename: /var/log/vcenter_collector/collect_metrics_err.log
@@ -120,42 +120,42 @@ handlers:
 
 loggers: 
     __main__: 
-        handlers: [default, syslog, file, err_file]
+        handlers: [default, syslog_file, file, err_file]
         level: DEBUG
         propagate: False
 
     vspherecollector:
-        handlers: [default, syslog, file, err_file]
+        handlers: [default, syslog_file, file, err_file]
         level: INFO
         propagate: False
 
     vspherecollector.statsd:
-        handlers: [default, syslog, statsd_file, statsd_err_file]
+        handlers: [default, syslog_file, statsd_file, statsd_err_file]
         level: DEBUG
         propagate: False
 
     vspherecollector.vmware:
-        handlers: [default, syslog, file, err_file]
+        handlers: [default, syslog_file, file, err_file]
         level: DEBUG
         propagate: False
 
     vspherecollector.influx.client:
-        handlers: [default, syslog, influxd_file, influxd_err_file]
+        handlers: [default, syslog_file, influxd_file, influxd_err_file]
         level: DEBUG
         propagate: False
 
     vspherecollector.statsd.agent:
-        handlers: [default, syslog, statsd_file, statsd_agent_file, statsd_agent_err_file]
+        handlers: [default, syslog_file, statsd_file, statsd_agent_file, statsd_agent_err_file]
         level: DEBUG
         propagate: False
 
     vspherecollector.statsd.collector:
-        handlers: [default, syslog, statsd_file, statsd_err_file]
+        handlers: [default, syslog_file, statsd_file, statsd_err_file]
         level: DEBUG
         propagate: False
 
     vspherecollector.statsd.parse:
-        handlers: [default, syslog, statsd_file, parser_file, parser_err_file]
+        handlers: [default, syslog_file, statsd_file, parser_file, parser_err_file]
         level: DEBUG
         propagate: False
 

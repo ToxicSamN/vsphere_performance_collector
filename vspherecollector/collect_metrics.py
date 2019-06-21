@@ -1,10 +1,9 @@
+VERSION = "2.3.0"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
  with as granular sampling as possible, in which case for VMware is 20 second sample intervals.
 """
-
-VERSION = "2.2.0"
 
 import sys
 import os
@@ -26,6 +25,7 @@ from vspherecollector.statsd.agent import Statsd
 from vspherecollector.statsd.collector import StatsCollector
 from vspherecollector.statsd.parse import Parser
 from vspherecollector.influx.client import InfluxDB
+from vspherecollector.datadog.handle import Datadog
 from vspherecollector.log.setup import LoggerSetup
 from vspherecollector.args.handle import Args
 
@@ -46,7 +46,7 @@ log_setup.setup()
 logger = logging.getLogger(__name__)
 
 
-def new_bg_agents(num, sq, iq, aq, atq, vcenter_list):
+def new_bg_agents(num, sq, iq, aq, atq, dq, vcenter_list):
     logger = logging.getLogger('{}.new_bg_agents'.format(__name__))
     try:
         args = Args()
@@ -78,7 +78,14 @@ def new_bg_agents(num, sq, iq, aq, atq, vcenter_list):
                                                      ))
             proc_pool.append(multiprocessing.Process(name='parser_proc_{}'.format(x),
                                                      target=Parser,
-                                                     kwargs={'statsq': sq, 'influxq': iq}))
+                                                     kwargs={'statsq': sq, 'influxq': iq, 'datadogq': dq}))
+
+            proc_pool.append(multiprocessing.Process(name='datadog_proc_{}'.format(x),
+                                                     target=Datadog,
+                                                     kwargs={
+                                                         'config_file': '{}/datadog_config.conf'.format(BASE_DIR),
+                                                         'bg_process': True,
+                                                         'ddq': dq}))
 
         return proc_pool
     except BaseException as e:
@@ -143,13 +150,8 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
     This is the main worker. The dude abides!
     :return:
     """
-    # log_level = logging.INFO
-    # if args.DEBUG:
-    #     log_level = logging.DEBUG
-    #
-    # LOGGERS = Logger(log_level=log_level)
-    # main_logger = LOGGERS.get_logger('main')
-    main_logger = logging.getLogger('{}.main_func'.format(__name__))
+
+    main_logger = logging.getLogger('{}.{}.main_func'.format(__name__, collector_type))
     all_views = []
     vc = vcenter
     try:
@@ -165,18 +167,25 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
         if collector_type.lower() == 'vm':
             main_logger.debug("Collecting views for 'vim.VirtualMachine'")
             all_views = []
+            ds_views = []
             cl_view_tracker = []
+            cl_ds_view_tracker = []
             for dc in vc.get_container_view([vim.Datacenter]):
                 all_vm_views = vc.get_container_view([vim.VirtualMachine],
                                                      search_root=dc,
                                                      filter_expression='runtime.powerState == poweredOn')
+                all_ds_views = vc.get_container_view([vim.Datastore],
+                                                     search_root=dc)
                 for cl in vc.get_container_view([vim.ClusterComputeResource], search_root=dc):
                     main_logger.debug("Collecting PoweredOn VMs for cluster {}".format(cl.name))
                     all_cl_views = vc.get_container_view([vim.VirtualMachine],
                                                          search_root=cl,
                                                          filter_expression='runtime.powerState == poweredOn')
                     main_logger.debug('Found {} VMs in cluster {}'.format(len(all_cl_views), cl.name))
+
+                    all_cl_ds_views = None
                     if all_cl_views:
+                        all_cl_ds_views = cl.datastore
                         cl_view_tracker = cl_view_tracker.__add__(all_cl_views)
                         all_views = all_views.__add__(list(
                             zip(all_cl_views,
@@ -184,7 +193,17 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
                                 [cl.name] * len(all_cl_views)
                                 )
                         ))
+                    if all_cl_ds_views:
+                        cl_ds_view_tracker = cl_ds_view_tracker.__add__(all_cl_ds_views)
+                        ds_views = ds_views.__add__(list(
+                            zip(all_cl_ds_views,
+                                [dc.name] * len(all_cl_ds_views),
+                                [cl.name] * len(all_cl_ds_views)
+                                )
+                        ))
                 no_cl_views = list(set(all_vm_views) - set(cl_view_tracker))
+                no_cl_ds_views = list(set(all_ds_views) - set(cl_view_tracker))
+
                 if no_cl_views:
                     main_logger.debug('Found {} VMs not in any Cluster'.format(len(no_cl_views)))
                     # These have no cluster
@@ -192,6 +211,47 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
                         zip(no_cl_views,
                             [dc.name] * len(no_cl_views),
                             ['NoCluster'] * len(no_cl_views)
+                            )
+                    ))
+
+                if no_cl_ds_views:
+                    # These have no cluster
+                    ds_views = ds_views.__add__(list(
+                        zip(no_cl_ds_views,
+                            [dc.name] * len(no_cl_ds_views),
+                            ['NoCluster'] * len(no_cl_ds_views)
+                            )
+                    ))
+
+        if collector_type.lower() == 'datastore':
+            main_logger.debug("Collecting views for 'vim.Datastore'")
+            all_views = []
+            cl_view_tracker = []
+            cl_ds_view_tracker = []
+            for dc in vc.get_container_view([vim.Datacenter]):
+                all_ds_views = vc.get_container_view([vim.Datastore],
+                                                     search_root=dc)
+                for cl in vc.get_container_view([vim.ClusterComputeResource], search_root=dc):
+                    main_logger.debug("Collecting Datastores for cluster {}".format(cl.name))
+
+                    all_cl_ds_views = cl.datastore
+
+                    if all_cl_ds_views:
+                        cl_ds_view_tracker = cl_ds_view_tracker.__add__(all_cl_ds_views)
+                        all_views = all_views.__add__(list(
+                            zip(all_cl_ds_views,
+                                [dc.name] * len(all_cl_ds_views),
+                                [cl.name] * len(all_cl_ds_views)
+                                )
+                        ))
+                no_cl_ds_views = list(set(all_ds_views) - set(cl_view_tracker))
+
+                if no_cl_ds_views:
+                    # These have no cluster
+                    all_views = all_views.__add__(list(
+                        zip(no_cl_ds_views,
+                            [dc.name] * len(no_cl_ds_views),
+                            ['NoCluster'] * len(no_cl_ds_views)
                             )
                     ))
 
@@ -245,19 +305,16 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
 
 if __name__ == '__main__':
     args = Args()
+    watch_24_start = datetime.now()
 
     try:
         # root_logger.info('Code Version : {}'.format(VERSION))
         error_count = 0
-        sample_size = 3  # default sample_size value of 3 samples or 1 minute
+        sample_size = 15  # default sample_size value of 3 samples or 1 minute
         vcenter_pool = []
 
-        # if args.MOREF_TYPE.lower() == 'vm':
-        sample_size = Vcenter.get_QuerySpec(vim.VirtualMachine, get_sample=True)
-        # elif args.MOREF_TYPE.lower() == 'host':
-        #     sample_size = Vcenter.get_QuerySpec(vim.HostSystem, get_sample=True)
-        main_program_running_threshold = (sample_size * 20) - 5  # 1 sample is 20 seconds
-        over_watch_threshold = (24 * (60 * 60)) - 13  # 24 hours x 60 seconds - 3 seconds
+        main_program_running_threshold = args.running_threshold
+        over_watch_threshold = 86400 - 13  # 24 hours - 13 seconds
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
@@ -269,36 +326,42 @@ if __name__ == '__main__':
         aq = queue_manager.Queue()
         # agent_tracker_queue for the statsd process to query perfmanager
         atq = queue_manager.Queue()
+        # datadog_queue for the datadog process to send the stats
+        dq = queue_manager.Queue()
 
         # Setup the background processes
-        proc_pool = new_bg_agents(cpu_count(), sq, iq, aq, atq, args.vcenterNameOrIP)
-        watch_24_start = datetime.now()
+        # Setup the background processes
+        proc_pool = new_bg_agents(1, sq, iq, aq, atq, dq, args.vcenterNameOrIP)
 
         # This code will be ran from a systemd service
         # so this needs to be an infinite loop
         while True:
-            logger.info('Code Version : {}'.format(VERSION))
-            watch_24_now = datetime.now()
-            watch_delta = watch_24_now - watch_24_start
-            logger.info("Service Time Remaining Before Service Restart: {} second(s)".format((over_watch_threshold - watch_delta.seconds)))
-            if watch_delta.seconds >= over_watch_threshold:
-                logging.info(
-                    "Overall runtime running {} seconds. Restarting the program to flush memory and processes".format(
-                        watch_delta.seconds))
-                # Exit the agent.
-                # Wait for the influx_q to be flushed
-                while not iq.empty():
-                    logger.debug('Waiting on the influx_q to flush out before restarting the program...')
-
-                # Since the agent should be ran as a service then the agent should automatically be restarted
-                for proc in proc_pool:
-                    proc.terminate()
-                sys.exit(-1)
-
-            # check if the background process for parsing and influx are still running
-            check_bg_process(proc_pool=proc_pool)
-
             try:
+                logger.info('Code Version : {}'.format(VERSION))
+                watch_24_now = datetime.now()
+                watch_delta = watch_24_now - watch_24_start
+                logger.info("Service Time Remaining Before Service Restart: {} second(s)".format(
+                    (over_watch_threshold - watch_delta.seconds)))
+                if watch_delta.seconds >= over_watch_threshold:
+                    logging.info(
+                        "Overall runtime running {} seconds. Restarting the program to flush memory and processes".format(
+                            watch_delta.seconds))
+                    # Exit the agent.
+                    try:
+                        # Wait for the influx_q to be flushed
+                        while not iq.empty():
+                            logger.debug('Waiting on the influx_q to flush out before restarting the program...')
+                    except:
+                        pass
+
+                    # Since the agent should be ran as a service then the agent should automatically be restarted
+                    for proc in proc_pool:
+                        proc.terminate()
+                    sys.exit(-1)
+
+                # check if the background process for parsing and influx are still running
+                check_bg_process(proc_pool=proc_pool)
+
                 # Perform a VERSION check with the code and if there is an update then restart the agent
                 with open(os.path.realpath(__file__), 'r') as f:
                     line = f.readline()

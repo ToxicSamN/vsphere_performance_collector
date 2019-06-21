@@ -53,6 +53,8 @@ class QueryResult:
             return 'HOST'
         elif isinstance(moref, vim.ClusterComputeResource):
             return 'CLUSTER'
+        elif isinstance(moref, vim.Datastore):
+            return 'DATASTORE'
 
 
 @addClassLogger
@@ -121,6 +123,9 @@ class Statsd:
                                     'cluster': dc_cl_map[result.entity._moId]['cluster'],
                                     'datacenter': dc_cl_map[result.entity._moId]['datacenter'],
                                     'ds_map': ds_map,
+                                    'inf.env': self.vc_handles[vcenter].env,
+                                    'inf.role': self.vc_handles[vcenter].role,
+                                    'inf.security': self.vc_handles[vcenter].security,
                                     'result': QueryResult(result,
                                                           perf_info,
                                                           dc_cl_map[result.entity._moId]['datacenter'],
@@ -149,7 +154,7 @@ class Statsd:
 
                     self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
-                self.__log.debug('Infinite loop has been broken')
+            self.__log.debug('Infinite loop has been broken')
         except BaseException as e:
             self.__log.debug("statsd agent SOMETHING WENT WRONG OUTSIDE LOOP!")
             for vc in list(self.vc_handles.keys()):

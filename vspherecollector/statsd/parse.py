@@ -1,5 +1,8 @@
 import queue
 import logging
+import dns.resolver
+import time
+from dns.resolver import NXDOMAIN
 from pyVmomi import SoapAdapter, vim
 from dateutil import parser as timeparser
 from datetime import datetime
@@ -21,9 +24,10 @@ class SampleInfo:
 @addClassLogger
 class Parser:
 
-    def __init__(self, statsq, influxq):
+    def __init__(self, statsq, influxq, datadogq):
         self.in_q = statsq
         self.out_q = influxq
+        self.dd_q = datadogq
 
         self._run()
 
@@ -45,6 +49,7 @@ class Parser:
                 # logger.debug('data pulled from queue : {}'.format(data))
                 # send the raw data to be parsed into a dict format
                 queue_empty_flag = 0
+
                 json_series = self._parse_data(data)
                 if json_series:
 
@@ -84,16 +89,22 @@ class Parser:
             cluster = data['cluster']
             ds_map = data['ds_map']
             results = data['result']
+            inf_env = data['inf.env']
+            inf_role = data['inf.role']
+            inf_security = data['inf.security']
             self.__log.debug('vcenter: {}, dc: {}, cl: {}\nresults: {}'.format(vcenter_name,
-                                                                           datacenter,
-                                                                           cluster,
-                                                                           results))
+                                                                               datacenter,
+                                                                               cluster,
+                                                                               results))
             self.__log.debug('sending to prep_n_send_data')
             json_series = self._prep_n_send_data(datum=results,
                                                  vcenter=vcenter_name,
                                                  datacenter=datacenter,
                                                  cluster=cluster,
-                                                 ds_map=ds_map)
+                                                 ds_map=ds_map,
+                                                 inf_env=inf_env,
+                                                 inf_role=inf_role,
+                                                 inf_security=inf_security)
             self.__log.debug("json_series size: {}".format(len(json_series)))
 
             return json_series
@@ -115,7 +126,8 @@ class Parser:
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
         return None
 
-    def _prep_n_send_data(self, datum, vcenter, datacenter, cluster, ds_map={}):
+    def _prep_n_send_data(self, datum, vcenter, datacenter, cluster, ds_map={}, inf_env=None, inf_role=None,
+                          inf_security=None):
         """
         :param datum:
         :param vcenter:
@@ -125,6 +137,7 @@ class Parser:
         try:
             self.__log.debug('datum type: {}, datum: {}'.format(type(datum), datum))
             json_series = []
+            datadog_series = []
             if isinstance(datum, QueryResult):
                 self.__log.debug('datum is QueryResult')
                 data = datum
@@ -141,26 +154,52 @@ class Parser:
                     self.__log.debug('Meta: {}'.format(meta))
                     for instance in list(meta_lookup[meta].keys()):
                         self.__log.debug('metric instance: {}'.format(instance))
+                        hostname = ''
+                        if data.moref_type == 'HOST' or data.moref_type == 'VM':
+                            hostname = self._get_fqdn(data.moref_name.lower())
+
                         tags = {
-                            "host": str(data.moref_name.lower()),
+                            "host": str(data.moref_name.lower()),  # this should be renamed to entity
+                            # "entity": str(data.moref_name.lower()),
                             "location": str(datacenter),
                             "type": str(data.moref_type),
                             "cluster": str(cluster),
                             "vcenter": str(vcenter),
                             "instance": str(instance),
                         }
+
+                        datadog_tags = {
+                            'inf.tools.host': str(hostname.lower()),
+                            'vsphere_entity': str(data.moref_name.lower()),
+                            'app': 'vsphere',
+                            'team': 'cig',
+                            'instance': str(instance),
+                            'vsphere_cluster': str(cluster),
+                            'vsphere_datacenter': str(datacenter),
+                            'vsphere_type': str(data.moref_type.lower()),
+                            'vcenter_server': str(vcenter),
+                            'inf.vsphere.env': inf_env,
+                            'inf.vsphere.role': inf_role,
+                            'inf.vsphere.security': inf_security
+                        }
                         self.__log.debug('tags: {}'.format(tags))
+                        self.__log.debug('Datadog tags: {}'.format(datadog_tags))
                         json_data = []
                         for index in meta_lookup[meta][instance]:
                             _data = data.stat_value_csv[index]
+                            datadog_series.append(self._format_datadog_json(_data, datadog_tags, sample_data))
                             json_data = self._format_json(meta, _data, tags, sample_data, json_data)
 
                         json_series.append(json_data)
             else:
                 raise TypeError('Unexpected type: {}. Requires type: {}'.format(type(datum), QueryResult))
+
+            self.dd_q.put_nowait(datadog_series)
             return json_series
+
         except BaseException as e:
             self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+
         return None
 
     @staticmethod
@@ -214,6 +253,24 @@ class Parser:
         return None
 
     @staticmethod
+    def _format_datadog_json(metric, tags, sample_data):
+        sample_times = [s.sample_time.timestamp() for s in sample_data]
+        json_series = {
+            'metric': 'vsphere.{}'.format(metric.metric_name),
+            'type': 'gauge',
+            'points': list(zip(sample_times, metric.metric_value_csv.split(','))),
+            'tags': tags.copy(),  # Need to copy this dict so that we can pop without affecting the original object
+            'integration': 'vsphere',
+            'unit': metric.metric_unit
+        }
+        if tags.get('inf.tools.host' or None):
+            json_series.update({'host': tags['inf.tools.host']})
+        else:
+            json_series['tags'].pop('inf.tools.host')
+
+        return json_series
+
+    @staticmethod
     def get_meta(metric_list):
         logger = logging.getLogger('{}.Parser.get_meta'.format(__name__))
         try:
@@ -242,3 +299,20 @@ class Parser:
         except BaseException as e:
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
         return None
+
+    def _get_fqdn(self, name):
+        fqdn = None
+        try:
+            dns_qry = dns.resolver.query(name)
+            fqdn = dns_qry.canonical_name.__str__().strip('.')
+
+        except NXDOMAIN as e:
+            self.__log.warning(
+                'Unable to locate a DNS record for {}.\nException: {} \n Args: {}'.format(name, e, e.args))
+
+        return fqdn
+
+    @staticmethod
+    def _convert_to_epoch(date_time):
+        if isinstance(date_time, datetime):
+            return time.mktime(date_time.timetuple())

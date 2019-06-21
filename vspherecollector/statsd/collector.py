@@ -195,6 +195,8 @@ class QueryResult:
             return 'HOST'
         elif isinstance(moref, vim.ClusterComputeResource):
             return 'CLUSTER'
+        elif isinstance(moref, vim.Datastore):
+            return 'DATASTORE'
 
 
 @addClassLogger
@@ -219,9 +221,9 @@ class StatsCollector:
         vc_version = vcenter.content.about.apiVersion
         vc_version = '{}.{}'.format(vc_version.split('.')[0], vc_version.split('.')[1])
         if float(vc_version) < 6.5:
-            return 64
+            return 63
         else:
-            return 256
+            return 254
 
     def create_querySpec(self, view):
         logger = logging.getLogger('{}.create_querySpec'.format(self.__log.name))
@@ -232,6 +234,19 @@ class StatsCollector:
                                                       [self.perf_info.perf_counter_byId[m.counterId].name for m in _qspec.metricId]))
         except BaseException as e:
             logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+
+    @staticmethod
+    def _parse_entity_types(view_list):
+        index = 0
+        view_types = []
+        view_index = []
+        for view in view_list:
+            if not type(view).__name__ in view_types:
+                view_types.append(type(view).__name__)
+                view_index.append(index)
+            index += 1
+
+        return view_index
 
     def query_stats(self, agentq, agenttrackq, view_list):
         """
@@ -252,9 +267,7 @@ class StatsCollector:
         thread = 1
 
         try:
-
             # view_list format  = [[managed_object, datacenter, cluster],..]
-
             self.perf_info.get_counterIDs(vcenter=self.vcenter,
                                           entity=view_list[0][0])
             self.perf_info.get_metricIDs()
@@ -273,11 +286,13 @@ class StatsCollector:
             all_ds = self.vcenter.get_container_view([vim.Datastore])
             ds_map = self.map_filtered_objs(self.vcenter, all_ds, vim.Datastore, ['name', 'info.url'])
             self.__log.info('Start Query of QuerySpecs')
-            if len(self.querySpecs) >= self.get_max_spec_size(self.vcenter):
+            if type(view_list[0][0]).__name__ == 'vim.Datastore':
+                array_size = len(self.querySpecs)
+            elif len(self.querySpecs) >= self.get_max_spec_size(self.vcenter):
                 array_size = math.ceil(len(self.querySpecs)/self.get_max_spec_size(self.vcenter))
             else:
-                array_size = 1
-                self.__log.info('Splitting the querySpecs into equal sized chunks of {}'.format(array_size))
+                 array_size = 1
+            self.__log.info('Splitting the querySpecs into equal sized chunks of {}'.format(array_size))
             qSpec_chunks = [qSpecs for qSpecs in numpy.array_split(self.querySpecs, array_size)]
             self.perf_info.serialize()
             for qSpecs in qSpec_chunks:
@@ -316,7 +331,6 @@ class StatsCollector:
             logger.info('Mapping Processes')
             # Define the process pool size, or number of parallel processes
             p_pool = tPool(pool_size)
-            #p_pool = CollectorProcessPool(pool_size)
             # map the function with the argument array
             #  Looks like this StatsCollector._query_stats(*args)
             # Once the mapping is done the process pool executes immediately
@@ -426,7 +440,6 @@ class StatsCollector:
                     elif prop.name == 'info.url':
                         url = prop.val
 
-                #if not name.find('_local') >= 0 and not name.find('datastore') >= 0 and not name.find('utils') >= 0 and not name.find('-local-') >= 0:
                 url_split = url.split('/')
                 uuid = url_split[len(url_split) - 2]
                 objs_dict.update({uuid: name})
