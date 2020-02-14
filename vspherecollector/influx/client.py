@@ -2,21 +2,14 @@
 import queue
 import logging
 from vspherecollector.logger.handle import Logger
+from vspherecollector.log.setup import addClassLogger
 from influxdb import InfluxDBClient
-#from ..collect_metrics import Args
+
+# LOGGERS = Logger(log_file='/var/log/vcenter_collector/influx.log',
+#                  error_log_file='/var/log/vcenter_collector/influx_err.log')
 
 
-# args = Args()
-# log_level = logging.INFO
-# if args.DEBUG:
-#     log_level = logging.DEBUG
-# args = None
-
-
-LOGGERS = Logger(log_file='/var/log/vcenter_collector/influx.log',
-                 error_log_file='/var/log/vcenter_collector/influx_err.log')
-
-
+@addClassLogger
 class InfluxDB:
 
     def __init__(self, influxq, host='127.0.0.1', port=8186, username='anonymous', password='anonymous',
@@ -31,7 +24,6 @@ class InfluxDB:
         self.__timeout = timeout
         self.__retries = retries
         self.client = self.__create_influx_client()
-        self.logger = LOGGERS.get_logger('InfluxDB')
 
         try:
             self._run()
@@ -49,15 +41,15 @@ class InfluxDB:
                               )
 
     def _run(self):
-        logger = LOGGERS.get_logger('InfluxDB')
-        logger.info('InfluxDB process Started')
+
+        self.__log.info('InfluxDB process Started')
         queue_empty_flag = 1
         while True:
             try:
                 json_data = self.in_q.get_nowait()
                 queue_empty_flag = 0
                 if json_data:
-
+                    self.__log.debug('Data received')
                     try:
                         if isinstance(json_data, list):
                             # logger.info('Sending {} stats'.format(len(json_data)))
@@ -74,8 +66,8 @@ class InfluxDB:
                                                      )
                     except BaseException as e:
                         # Writing to InfluxDB was unsuccessful. For now let's just try to resend
-                        logger.error('Failed to Send influx data {}'.format(json_data))
-                        logger.info('Retry Sending stats: {}'.format(json_data))
+                        self.__log.error('Failed to Send influx data {}'.format(json_data))
+                        self.__log.info('Retry Sending stats: {}'.format(json_data))
                         self.logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
                         self.client.write_points(points=json_data,
                                                  time_precision='s',
@@ -84,10 +76,10 @@ class InfluxDB:
                         pass
             except queue.Empty:
                 if queue_empty_flag == 0:
-                    logger.debug("Influx Complete")
+                    self.__log.info("Influx Complete")
                     queue_empty_flag = 1
                 pass
             except BaseException as e:
-                logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+                self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
         logger.info('InfluxDB process Stopped')

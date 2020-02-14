@@ -1,7 +1,10 @@
-configparser==3.5.0
-influxdb==5.2.0
-numpy==1.15.4
-pycrypt-samn==1.2.4
-pycryptodome==3.7.0
-python-dateutil==2.7.5
-pyvmomi==6.7.1
+configparser>=3.5.0
+influxdb>=5.2.0
+numpy>=1.15.4
+pycrypt-samn>=1.2.4
+pycryptodome>=3.7.0
+python-dateutil>=2.7.5
+pyvmomi>=6.7.1
+PyYAML >=5.1.1
+datadog >=0.29.3
+dnspython >=1.16.0

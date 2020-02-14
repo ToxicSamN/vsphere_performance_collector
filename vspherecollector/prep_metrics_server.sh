@@ -27,11 +27,11 @@ do
 	case "$1" in 
 		-p | --python-download-link)	
 			shift
-			$PYTHON_LINK="$1"
+			PYTHON_LINK="$1"
 			;;
 		-t | --telegraf-download-link)	
 			shift
-			$TELEGRAF_LINK="$1"
+			TELEGRAF_LINK="$1"
 			;;
 		-u | --git-user)	
 			shift
@@ -108,6 +108,11 @@ sudo rm -f /tmp/telegraf*
 
 # Need to setup the 3rd hard disk using LVM
 #  You should verify that /dev/sdc is the correct device for your 3rd hard disk before continuing
+for BUS in /sys/class/scsi_host/host*/scan
+do
+   echo "- - -" >  ${BUS}
+done
+
 sudo pvcreate /dev/sdc
 sudo vgcreate vg01 /dev/sdc
 sudo lvcreate -l 100%FREE -n vol01 vg01
@@ -156,6 +161,7 @@ sudo cp -f /u01/code/vsphere_performance_collector/services/metrics.conf /etc/me
 sudo cp -f /u01/code/vsphere_performance_collector/services/telegraf.conf /etc/telegraf/
 sudo cp -f /u01/code/vsphere_performance_collector/services/collect-vmmetrics.service /etc/systemd/system/
 sudo cp -f /u01/code/vsphere_performance_collector/services/collect-esxmetrics.service /etc/systemd/system/
+sudo cp -f /u01/code/vsphere_performance_collector/services/collect-dsmetrics.service /etc/systemd/system/
 sudo cp -f /u01/code/vsphere_performance_collector/services/startuplast.target /etc/systemd/system/
 sudo ln -sf /etc/systemd/system/startuplast.target /etc/systemd/system/default.target
 

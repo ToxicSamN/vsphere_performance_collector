@@ -2,6 +2,7 @@ import numpy
 import math
 import uuid
 import queue
+import logging
 from timeit import timeit
 from datetime import datetime
 from pyVmomi import vim, SoapAdapter, vmodl
@@ -9,19 +10,16 @@ from multiprocessing.dummy import Pool as tPool
 from multiprocessing.pool import Pool, MapResult, mapstar, RUN
 from multiprocessing import cpu_count
 from vspherecollector.logger.handle import Logger
-#from vspherecollector.collect_metrics import Args
-
-# args = Args()
-# log_level = logging.INFO
-# if args.DEBUG:
-#     log_level = logging.DEBUG
-# args = None
+from vspherecollector.log.setup import addClassLogger
 
 
-LOGGERS = Logger(log_file='/var/log/vcenter_collector/stats.log',
-                 error_log_file='/var/log/vcenter_collector/stats_err.log')
+logger = logging.getLogger(__name__)
 
 
+# LOGGERS = Logger(log_file='/var/log/vcenter_collector/stats.log',
+#                  error_log_file='/var/log/vcenter_collector/stats_err.log')
+
+@addClassLogger
 class CustomObject(object):
     """ Because I came from powershell I was really spoiled with New-Object PSObject
     So I created a class that acts similar in which I can add and remove properties.
@@ -41,6 +39,7 @@ class CustomObject(object):
         delattr(self, property_name)
 
 
+@addClassLogger
 class CollectorProcessPool(Pool):
     """
         Strictly for debugging purposes. There is no other value here for this class.
@@ -55,7 +54,7 @@ class CollectorProcessPool(Pool):
         Helper function to implement map, starmap and their async counterparts.
         '''
         if self._state != RUN:
-            raise ValueError("Pool not running")
+            raise ValueError(f"Pool not running")
         if not hasattr(iterable, '__len__'):
             iterable = list(iterable)
 
@@ -80,6 +79,7 @@ class CollectorProcessPool(Pool):
         return result
 
 
+@addClassLogger
 class Perf:
 
     def __init__(self, name, key, unit):
@@ -88,6 +88,7 @@ class Perf:
         self.unit = unit
 
 
+@addClassLogger
 class PerfInfo(object):
     """ This will create a performance counter dict object """
 
@@ -98,63 +99,62 @@ class PerfInfo(object):
         self.metricIDs = []
 
     def get_info(self, vcenter):
-        logger = LOGGERS.get_logger('PerfInfo__get_info')
+        logger = logging.getLogger(f'{self.__log.name}.get_info')
         try:
             # getting all of the available metrics from vCenter for ALL moRefs and store them in dictionaries for lookups
             perf_counter_list = vcenter.content.perfManager.perfCounter
             for counter in perf_counter_list:
-                specific_counter = "{0}.{1}.{2}".format(counter.groupInfo.key,
-                                                        counter.nameInfo.key,
-                                                        counter.rollupType)
+                specific_counter = f"{counter.groupInfo.key}.{counter.nameInfo.key}.{counter.rollupType}"
                 self.update(Perf(name=specific_counter,
                                  key=counter.key,
                                  unit=counter.unitInfo.key
                                  )
                             )
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def update(self, perf_obj):
-        logger = LOGGERS.get_logger('PerfInfo__update')
+        logger = logging.getLogger(f'{self.__log.name}.update')
         try:
             self.perf_counter_byName[perf_obj.name] = perf_obj
             self.perf_counter_byId[perf_obj.key] = perf_obj
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def get_counterIDs(self, vcenter, entity):
-        logger = LOGGERS.get_logger('PerfInfo__get_counterIDs')
+        logger = logging.getLogger(f'{self.__log.name}.get_counterIDs')
         try:
             for metric in vcenter.get_primary_metrics(entity):
                 if not self.counterIDs.__contains__(self.perf_counter_byName[metric].key):
                     self.counterIDs.append(self.perf_counter_byName[metric].key)
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def get_metricIDs(self):
-        logger = LOGGERS.get_logger('PerfInfo__get_metricIDs')
+        logger = logging.getLogger(f'{self.__log.name}.get_metricIDs')
         try:
             self.metricIDs = [vim.PerformanceManager.MetricId(counterId=c, instance="*") for c in self.counterIDs]
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def serialize(self):
-        logger = LOGGERS.get_logger('PerfInfo__serialize')
+        logger = logging.getLogger(f'{self.__log.name}.serialize')
         try:
             from pyVmomi import SoapAdapter
             self.metricIDs = [SoapAdapter.Serialize(mid) for mid in self.metricIDs]
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def deserialize(self):
-        logger = LOGGERS.get_logger('PerfInfo__deserialize')
+        logger = logging.getLogger(f'{self.__log.name}.deserialize')
         try:
             from pyVmomi import SoapAdapter
             self.metricIDs = [SoapAdapter.Deserialize(mid) for mid in self.metricIDs]
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
 
+@addClassLogger
 class QueryResult:
 
     class Metric:
@@ -193,8 +193,11 @@ class QueryResult:
             return 'HOST'
         elif isinstance(moref, vim.ClusterComputeResource):
             return 'CLUSTER'
+        elif isinstance(moref, vim.Datastore):
+            return 'DATASTORE'
 
 
+@addClassLogger
 class StatsCollector:
     """
         This class is used as a statistics collector of specific devices for the UCS.
@@ -214,21 +217,34 @@ class StatsCollector:
     @staticmethod
     def get_max_spec_size(vcenter):
         vc_version = vcenter.content.about.apiVersion
-        vc_version = '{}.{}'.format(vc_version.split('.')[0], vc_version.split('.')[1])
+        vc_version = f'{vc_version.split(".")[0]}.{vc_version.split(".")[1]}'
         if float(vc_version) < 6.5:
-            return 64
+            return 63
         else:
-            return 256
+            return 254
 
     def create_querySpec(self, view):
-        logger = LOGGERS.get_logger('_create_querySpec')
+        logger = logging.getLogger(f'{self.__log.name}.create_querySpec')
         try:
             _qspec = self.vcenter.get_QuerySpec(view, self.perf_info.metricIDs)
             self.querySpecs.append(SoapAdapter.Serialize(_qspec))
-            logger.debug("VM: {}, Metrics: {}".format(_qspec.entity.name,
-                                                      [self.perf_info.perf_counter_byId[m.counterId].name for m in _qspec.metricId]))
+            logger.debug(
+                f"VM: {_qspec.entity.name}, Metrics: {[self.perf_info.perf_counter_byId[m.counterId].name for m in _qspec.metricId]}")
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
+
+    @staticmethod
+    def _parse_entity_types(view_list):
+        index = 0
+        view_types = []
+        view_index = []
+        for view in view_list:
+            if not type(view).__name__ in view_types:
+                view_types.append(type(view).__name__)
+                view_index.append(index)
+            index += 1
+
+        return view_index
 
     def query_stats(self, agentq, agenttrackq, view_list):
         """
@@ -238,8 +254,8 @@ class StatsCollector:
         :param statsq: processing queue
         :return: None ( data is stored into statsq )
         """
-        logger = LOGGERS.get_logger('statsd')
-        logger.info('StatsCollector statsd started')
+
+        self.__log.info(f'StatsCollector statsd started')
         # Define the number os parallel processes to run, typically the best results are cpu_count()
         # experiment with the sizing to determine the best number
         parallelism_thread_count = cpu_count()
@@ -249,100 +265,116 @@ class StatsCollector:
         thread = 1
 
         try:
-
             # view_list format  = [[managed_object, datacenter, cluster],..]
-
             self.perf_info.get_counterIDs(vcenter=self.vcenter,
                                           entity=view_list[0][0])
             self.perf_info.get_metricIDs()
 
-            logger.info('Start query spec creation and mapping')
-            q_id_tracker = {}
+            self.__log.info(f'Start query spec creation and mapping')
+            q_id_tracker = {self.vcenter.name: {}}
             dc_cl_map = {}
             for mo in view_list:
                 self.create_querySpec(mo[0])
                 dc_cl_map.update({
                                     mo[0]._moId: {
-                                                    'datacenter': mo[1],
-                                                    'cluster': mo[2]
+                                        'datacenter': mo[1],
+                                        'cluster': mo[2]
                                     }
                 })
             all_ds = self.vcenter.get_container_view([vim.Datastore])
             ds_map = self.map_filtered_objs(self.vcenter, all_ds, vim.Datastore, ['name', 'info.url'])
-            logger.info('Start Query of QuerySpecs')
-            if len(self.querySpecs) >= self.get_max_spec_size(self.vcenter):
+            self.__log.info(f'Start Query of QuerySpecs')
+            if type(view_list[0][0]).__name__ == 'vim.Datastore':
+                array_size = len(self.querySpecs)
+            elif len(self.querySpecs) >= self.get_max_spec_size(self.vcenter):
                 array_size = math.ceil(len(self.querySpecs)/self.get_max_spec_size(self.vcenter))
             else:
-                array_size = 1
-            logger.info('Splitting the querySpecs into equal sized chunks of {}'.format(array_size))
+                 array_size = 1
+            self.__log.info(f'Splitting the querySpecs into equal sized chunks of {array_size}')
             qSpec_chunks = [qSpecs for qSpecs in numpy.array_split(self.querySpecs, array_size)]
             self.perf_info.serialize()
             for qSpecs in qSpec_chunks:
                 # qSpecs is a numpy array
                 q_id = uuid.uuid4()
-                agentq.put_nowait([q_id, qSpecs, self.vcenter.name, dc_cl_map, self.perf_info, ds_map])
-                q_id_tracker.update({q_id: True})
+                q_id_str = q_id.__str__()
+                agentq.put_nowait([q_id_str, qSpecs, self.vcenter.name, dc_cl_map, self.perf_info, ds_map])
+                q_id_tracker[self.vcenter.name].update({q_id_str: True})
 
+            queue_empty_flag = 0
             while True:
                 try:
                     data = agenttrackq.get_nowait()
-                    if q_id_tracker.get(data or None):
-                        q_id_tracker[data] = False
+                    if data:
+                        queue_empty_flag = 0
+                        if q_id_tracker[self.vcenter.name].get(data or None):
+                            q_id_tracker[self.vcenter.name][data] = False
+                            self.__log.debug(
+                                f"Statsd agent completed for {self.vcenter.name} Q_ID: {data}  {q_id_tracker[self.vcenter.name][data]}")
+                        else:
+                            agenttrackq.put_nowait()
 
-                    if True not in list(q_id_tracker.values()):
-                        break
+                        if True not in list(q_id_tracker[self.vcenter.name].values()):
+                            self.__log.debug(
+                                f"Collector Complete for {self.vcenter.name}. All queues have been processed")
+                            break
 
                 except queue.Empty:
+                    if queue_empty_flag == 0:
+                        waiting = [k for k, v in q_id_tracker[self.vcenter.name].items() if v]
+                        if waiting:
+                            self.__log.debug(
+                                f'Queue Empty: {self.vcenter.name} Waiting for num Q_IDs: {len(waiting)}')
+                            queue_empty_flag = 1
                     pass
 
         except BaseException as e:
-            logger.error('Parralelism Count: {}, ThreadCount: {}, \n ThreadArgs: {}'.format(parallelism_thread_count, thread, thread_pool_args))
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.error(
+                f'Parralelism Count: {parallelism_thread_count}, ThreadCount: {thread}, \n ThreadArgs: {thread_pool_args}')
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
-    @staticmethod
-    def _query_thread_pool_map(func_args_array, pool_size=2):
-        """
-        This is the multithreading function that maps _query_stats with func_args_array
-        :param func_args_array: An array of arguments that will be passed along to _query_stats
-                                This is similar to *args
-        :param pool_size: Defines the number of parallel processes to be executed at once
-        """
-        # TODO ERROR HANDLING HERE
-        logger = LOGGERS.get_logger('Process Mapping')
-        try:
-            logger.info('Mapping Processes')
-            # Define the process pool size, or number of parallel processes
-            p_pool = tPool(pool_size)
-            #p_pool = CollectorProcessPool(pool_size)
-            # map the function with the argument array
-            #  Looks like this StatsCollector._query_stats(*args)
-            # Once the mapping is done the process pool executes immediately
-            p_pool.map(StatsCollector._query_stats, func_args_array)
-        except BaseException as e:
-            logger.error(
-                'Parralelism Count: {} \n ThreadArgs: {}'.format(pool_size, func_args_array))
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+    # @staticmethod
+    # def _query_thread_pool_map(func_args_array, pool_size=2):
+    #     """
+    #     This is the multithreading function that maps _query_stats with func_args_array
+    #     :param func_args_array: An array of arguments that will be passed along to _query_stats
+    #                             This is similar to *args
+    #     :param pool_size: Defines the number of parallel processes to be executed at once
+    #     """
+    #     # TODO ERROR HANDLING HERE
+    #     logger = logging.getLogger(f'{__name__}.StatsCollector._query_thread_pool_map')
+    #     try:
+    #         logger.info(f'Mapping Processes')
+    #         # Define the process pool size, or number of parallel processes
+    #         p_pool = tPool(pool_size)
+    #         # map the function with the argument array
+    #         #  Looks like this StatsCollector._query_stats(*args)
+    #         # Once the mapping is done the process pool executes immediately
+    #         p_pool.map(StatsCollector._query_stats, func_args_array)
+    #     except BaseException as e:
+    #         logger.error(
+    #             f'Parralelism Count: {pool_size} \n ThreadArgs: {func_args_array}')
+    #         logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
-    @staticmethod
-    def _query_stats(thread_args):
-
-        logger = LOGGERS.get_logger('_query_stats')
-        try:
-            vcenter, query_specs, thread_id, statsq, perfinfo = thread_args
-            """ The payload processor. This method is what is called in the multiprocess pool
-                to collect the stats. Once the stats have been collected they are stored into
-                a statsq in which a background process churns through the queue parsing the
-                data to send to influxdb.
-            """
-            logger.info('Query Performance Manager for {} QuerySpecs'.format(len(query_specs)))
-            query_results = vcenter.content.perfManager.QueryStats(querySpec=query_specs)
-            logger.info('Query Performance Manager Complete for {} QuerySpecs'.format(len(query_specs)))
-            logger.info('Pickle Friendly List for {} QueryResults'.format(len(query_results)))
-            [statsq.put_nowait({vcenter.name: QueryResult(result, perfinfo)}) for result in query_results]
-            logger.info('Pickle Friendly List Complete for {} QueryResults'.format(len(query_results)))
-
-        except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+    # @staticmethod
+    # def _query_stats(thread_args):
+    #
+    #     logger = logging.getLogger(f'{__name__}.StatsCollector._query_stats')
+    #     try:
+    #         vcenter, query_specs, thread_id, statsq, perfinfo = thread_args
+    #         """ The payload processor. This method is what is called in the multiprocess pool
+    #             to collect the stats. Once the stats have been collected they are stored into
+    #             a statsq in which a background process churns through the queue parsing the
+    #             data to send to influxdb.
+    #         """
+    #         logger.info(f'Query Performance Manager for {query_specs} QuerySpecs')
+    #         query_results = vcenter.content.perfManager.QueryStats(querySpec=query_specs)
+    #         logger.info(f'Query Performance Manager Complete for {len(query_specs)} QuerySpecs')
+    #         logger.info(f'Pickle Friendly List for {len(query_results)} QueryResults')
+    #         [statsq.put_nowait({vcenter.name: QueryResult(result, perfinfo)}) for result in query_results]
+    #         logger.info(f'Pickle Friendly List Complete for {len(query_results)} QueryResults')
+    #
+    #     except BaseException as e:
+    #         logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     @staticmethod
     def chunk_it(input_list, num_chunks=0, chunk_size=0):
@@ -373,7 +405,7 @@ class StatsCollector:
         :param prop:
         :return:
         """
-        logger = LOGGERS.get_logger('create_filter_spec')
+        logger = logging.getLogger(f'{__name__}.StatsCollector.create_filter_spec')
         try:
             objSpecs = []
 
@@ -388,11 +420,11 @@ class StatsCollector:
             filterSpec.propSet = [propSet]
             return filterSpec
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     @staticmethod
     def filter_props(vc, view, view_type, props):
-        logger = LOGGERS.get_logger('filter_props')
+        logger = logging.getLogger(f'{__name__}.StatsCollector.filter_props')
         try:
             property_collector = vc.content.propertyCollector
             filter_spec = StatsCollector.create_filter_spec(property_collector, view, view_type, props)
@@ -408,11 +440,11 @@ class StatsCollector:
 
             return totalProps
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
     @staticmethod
     def map_filtered_objs(vc, view_objs, view_type, props):
-        logger = LOGGERS.get_logger('map_filtered_obj')
+        logger = logging.getLogger(f'{__name__}.StatsCollector.map_filtered_obj')
         try:
             objs_dict = {}
             props = StatsCollector.filter_props(vc, view_objs, view_type, props)
@@ -423,11 +455,10 @@ class StatsCollector:
                     elif prop.name == 'info.url':
                         url = prop.val
 
-                #if not name.find('_local') >= 0 and not name.find('datastore') >= 0 and not name.find('utils') >= 0 and not name.find('-local-') >= 0:
                 url_split = url.split('/')
                 uuid = url_split[len(url_split) - 2]
                 objs_dict.update({uuid: name})
 
             return objs_dict
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')

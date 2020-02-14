@@ -1,12 +1,12 @@
 [Unit]
-Description=Launches collect_esxmetrics.sh which in turn launches collect_metrics.py
+Description=Launches collect_vmmetrics.sh which in turn launches collect_metrics.py
 Wants=network-online.target
 After=multi-user.target network-online.target
 
 [Service]
 Type=simple
 EnvironmentFile=/etc/profile.d/credstore.sh
-ExecStart=/u01/code/vsphere_performance_collector/services/collect_esxmetrics.sh
+ExecStart=/u01/code/vsphere_performance_collector/services/collect_dsmetrics.sh
 Restart=always
 RestartSec=10s
 

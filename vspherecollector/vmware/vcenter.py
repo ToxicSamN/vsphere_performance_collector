@@ -4,6 +4,9 @@ import re
 import ssl
 import atexit
 import logging
+import hashlib
+import dns.resolver
+from dns.resolver import NXDOMAIN
 from datetime import datetime
 from datetime import timedelta
 from pyVmomi import vim
@@ -12,9 +15,10 @@ from pyVim import connect
 from pycrypt.encryption import AESCipher
 from vspherecollector.vmware.credentials.credstore import Credential
 from vspherecollector.logger.handle import Logger
+from vspherecollector.log.setup import addClassLogger
 
 
-LOGGERS = Logger()
+logger = logging.getLogger(__name__)
 
 
 class CustomObject(object):
@@ -36,11 +40,12 @@ class CustomObject(object):
         delattr(self, property_name)
 
 
+@addClassLogger
 class Vcenter:
     """
     Vcenter class handles basic vcenter methods such as connect, disconnect, get_container_view, ect
     """
-    def __init__(self, name, username=None, password=None, ssl_context=None, _loggers=None):
+    def __init__(self, name, username=None, password=None, ssl_context=None):
         self.cipher = AESCipher()
         self.si = None
         self.content = None
@@ -50,10 +55,11 @@ class Vcenter:
         self.username = username
         self.__password = self.store_password(password)
         self.ssl_context = ssl_context
+        self.env = None
+        self.role = None
+        self.security = None
 
-        if _loggers:
-            global LOGGERS
-            LOGGERS = _loggers
+        self.__get_env_info()
 
     def store_password(self, password):
         if password:
@@ -71,8 +77,6 @@ class Vcenter:
         logger lines have been commented out until logging is fully implemented
         :return:
         """
-        # TODO: Ensure logging is setup properly to reinstate the logger lines
-        logger = LOGGERS.get_logger('connect_vcenter')
 
         try:
             # if no ssl_context has been provided then set this to unverified context
@@ -80,24 +84,24 @@ class Vcenter:
                 self.ssl_context = ssl._create_unverified_context()
                 self.ssl_context.verify_mode = ssl.CERT_NONE
 
-            logger.debug('Getting Credential Information')
+            self.__log.debug('Getting Credential Information')
 
             if not self.__password and not self.username:
-                logger.debug('No username and password provided. Will read from credstore for default account')
+                self.__log.debug('No username and password provided. Will read from credstore for default account')
                 cred = Credential('oppvfog01')
                 cred_dict = cred.get_credential()
                 self.username = cred_dict.get('username', None)
                 self.__password = self.store_password(cred_dict.get('password', None))
                 cred_dict = None
             elif self.username and not self.__password:
-                logger.debug('Username provided but no Password. Will retrieve password from credstore')
+                self.__log.debug('Username provided but no Password. Will retrieve password from credstore')
                 cred = Credential(self.username)
                 cred_dict = cred.get_credential()
                 self.username = cred_dict.get('username', None)
                 self.__password = self.store_password(cred_dict.get('password', None))
                 cred_dict = None
-            logger.info('Connecting to vCenter {}'.format(self.vcenter))
-            logger.debug(
+            self.__log.info('Connecting to vCenter {}'.format(self.vcenter))
+            self.__log.debug(
                 'Connection Params: vCenter: {}, Username: {}, {}, SSL_Context: {}'.format(self.vcenter,
                                                                                            self.username,
                                                                                            self.__password,
@@ -109,7 +113,7 @@ class Vcenter:
                                            )
 
             atexit.register(connect.Disconnect, self.si)
-            logger.debug('ServiceInstance: {}'.format(self.si))
+            self.__log.debug('ServiceInstance: {}'.format(self.si))
 
             self.content = self.si.RetrieveContent()
 
@@ -121,11 +125,10 @@ class Vcenter:
 
         except BaseException as e:
             print('Exception: {} \n Args: {}'.format(e, e.args))
-            logger.exception('Exception: {} \n Args: {}'.format(e, e.args))
+            self.__log.exception('Exception: {} \n Args: {}'.format(e, e.args))
 
     def disconnect(self):
-        logger = LOGGERS.get_logger('connect_vcenter')
-        logger.info('Disconnecting vCenter {}'.format(self.vcenter))
+        self.__log.info('Disconnecting vCenter {}'.format(self.vcenter))
         connect.Disconnect(self.si)
 
     def get_container_view(self, view_type, search_root=None, filter_expression=None, recursive=True):
@@ -388,6 +391,15 @@ class Vcenter:
                                                     startTime=(datetime.now() + timedelta(days=-1)),
                                                     endTime=datetime.now(),
                                                     format='csv')
+        elif isinstance(managed_object, vim.Datastore):
+            # Define QuerySpec for Datastore
+            #  Datastore does not have realtime stats, only daily roll-ups
+            return vim.PerformanceManager.QuerySpec(maxSample=2,
+                                                    entity=managed_object,
+                                                    metricId=metric_id,
+                                                    startTime=(datetime.now() + timedelta(hours=-1)),
+                                                    endTime=datetime.now(),
+                                                    format='csv')
         elif isinstance(managed_object, vim.HostSystem) or managed_object is vim.HostSystem:
             # Define QuerySpec for HostSystem
             if get_sample:
@@ -422,6 +434,9 @@ class Vcenter:
             return ['cpu.usage.average',
                     'cpu.ready.summation',
                     'cpu.usagemhz.average',
+                    'cpu.demand.average',
+                    'cpu.costop.summation',
+                    'cpu.wait.summation',
                     'mem.usage.average',
                     'mem.overhead.average',
                     'mem.swapinRate.average',
@@ -437,12 +452,23 @@ class Vcenter:
                     'disk.maxTotalLatency.latest',
                     'disk.usage.average',
                     'sys.uptime.latest']
+        elif isinstance(moref, vim.Datastore):
+            return ['disk.provisioned.latest',
+                    'disk.capacity.latest',
+                    'disk.capacity.provisioned.average',
+                    'disk.capacity.usage.average',
+                    'disk.capacity.contention.average']
         elif isinstance(moref, vim.HostSystem):
             return ['cpu.coreUtilization.average',
                     'cpu.latency.average',
                     'cpu.ready.summation',
                     'cpu.usage.average',
+                    'cpu.wait.summation',
                     'cpu.utilization.average',
+                    'cpu.capacity.usage.average',
+                    'cpu.capacity.demand.average',
+                    'cpu.capacity.provisioned.average',
+                    'cpu.capacity.entitlement.average',
                     'datastore.datastoreIops.average',
                     'datastore.datastoreMaxQueueDepth.latest',
                     'datastore.datastoreReadIops.latest',
@@ -514,3 +540,113 @@ class Vcenter:
                     'sys.uptime.latest']
         else:
             return None
+
+    def __get_env_info(self):
+        _fqdn = self._get_fqdn(self.name)
+        _hashed_name = hashlib.sha1(_fqdn.encode())
+
+        # store the vCenter FQDN's as a hashed value and compare the two hashsed values
+        _static_data = {
+            '7f536ac4a6a73ff1a1031f1ab5c92c659fcc0c9f': {  # nonprd
+                'inf.env': 'nonprod',
+                'inf.role': 'general',
+                'inf.security': ''
+            },
+            '889a90c24986b9c2ee2bde59b0eac5ab8be19dfc': {  # prd
+                'inf.env': 'prod',
+                'inf.role': 'general',
+                'inf.security': ''
+            },
+            '88bca47ed992a3108c067910cdfa200242fbce12': {  # st1
+                'inf.env': 'prod',
+                'inf.role': 'store',
+                'inf.security': ''
+            },
+            '7a7543880c24cb3c8ece077adcd95d5f637f552a': {  # st2
+                'inf.env': 'prod',
+                'inf.role': 'store',
+                'inf.security': ''
+            },
+            '1d90a32e429aac589d7ae3bc295e73ce676298fd': {  # st3
+                'inf.env': 'prod',
+                'inf.role': 'store',
+                'inf.security': ''
+            },
+            '4e99165d6876cebc5d9d31d797e9eccf35690b67': {  # lab
+                'inf.env': 'nonprod',
+                'inf.role': 'lab',
+                'inf.security': ''
+            },
+            '48a1351c0805cfe4012b146aaa1287a4568a9b5b': {  # p1
+                'inf.env': 'prod',
+                'inf.role': 'p1',
+                'inf.security': ''
+            },
+            'e92e8fcd5f2793291a882a40e01d0e2cb6809a29': {  # m1
+                'inf.env': 'prod',
+                'inf.role': 'm1',
+                'inf.security': ''
+            },
+            'bbadf71614f60dd3cf1721bc2e1f6aa6bf2b3ec8': {  # dr_nopci
+                'inf.env': 'prod',
+                'inf.role': 'general',
+                'inf.security': 'nonpci'
+            },
+            'af7ce0be786eb9c9fd07e6a8fad8788eb93d6617': {  # dr_pci
+                'inf.env': 'prod',
+                'inf.role': 'general',
+                'inf.security': 'pci'
+            },
+            'b76d3257391e5addc988c59f264b546384ca68ba': {  # dr_pcivdi
+                'inf.env': 'prod',
+                'inf.role': 'vdi',
+                'inf.security': 'pci'
+            },
+            'ea2e8493ae2eec6002e79bf461317270e1fd8b1c': {  # rsp
+                'inf.env': 'prod',
+                'inf.role': 'rsp',
+                'inf.security': ''
+            },
+            'dfe1f3ce9bb6805931a5272571f80ec7c03e6f1a': {  # vdigen
+                'inf.env': 'prod',
+                'inf.role': 'vdi',
+                'inf.security': 'nonpci'
+            },
+            '68db388dfbc00eeceea338a68a16993e7de5df72': {  # pcivdi1
+                'inf.env': 'prod',
+                'inf.role': 'vdi',
+                'inf.security': 'pci'
+            },
+            'b48675b02dde446126fc0f346a99ec16f69f881a': {  # pcivdi2
+                'inf.env': 'prod',
+                'inf.role': 'vdi',
+                'inf.security': 'pci'
+            },
+            'b3a548a3c97ad239be10ad1c514b7518a4239710': {  # pcivdi_395
+                'inf.env': 'prod',
+                'inf.role': 'vdi',
+                'inf.security': 'pci'
+            },
+            'ef57ae7940c57b0c804c1e1781a636f511e8bac4': {  # cte_lab
+                'inf.env': 'nonprod',
+                'inf.role': 'lab',
+                'inf.security': ''
+            }
+        }
+
+        if _static_data.get(_hashed_name.hexdigest() or None):
+            self.env = _static_data[_hashed_name.hexdigest()]['inf.env']
+            self.role = _static_data[_hashed_name.hexdigest()]['inf.role']
+            self.security = _static_data[_hashed_name.hexdigest()]['inf.security']
+
+    def _get_fqdn(self, name):
+        fqdn = None
+        try:
+            dns_qry = dns.resolver.query(name)
+            fqdn = dns_qry.canonical_name.__str__().strip('.')
+
+        except NXDOMAIN as e:
+            self.__log.warning(
+                'Unable to locate a DNS record for {}.\nException: {} \n Args: {}'.format(name, e, e.args))
+
+        return fqdn
