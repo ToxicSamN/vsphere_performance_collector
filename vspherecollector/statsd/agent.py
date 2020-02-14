@@ -69,18 +69,18 @@ class Statsd:
         args = Args()
         try:
             for vcenter in vcenter_list:
-                self.__log.debug('Connecting to vCenter {}'.format(vcenter))
+                self.__log.debug(f'Connecting to vCenter {vcenter}')
                 vc = Vcenter(name=vcenter, username=args.username)
                 vc.connect()
                 self.vc_handles.update({vc.name: vc})
                 self.vc_refresh_trkr.update({vc.name: datetime.now()})
-                self.__log.debug('Register disconnect() for vcenter {} on atexit'.format(vcenter))
+                self.__log.debug(f'Register disconnect() for vcenter {vcenter} on atexit')
                 atexit.register(self.vc_handles[vc.name].disconnect)
 
             self.__log.debug('launching statsd agent')
             self._run()
         except BaseException as e:
-            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def _run(self):
 
@@ -92,26 +92,26 @@ class Statsd:
                 try:
                     # get the next item in the queue
                     data = self.in_q.get_nowait()
-                    # logger.debug("Received Data from Queue : {}".format(data))
+                    # logger.debug(f"Received Data from Queue : {data}")
                     if data:
                         queue_empty_flag = 0
                         # from StatsCollector
                         #   data = [q_id, qSpecs, self.vcenter.name, dc_cl_map, self.perf_info]
                         q_id, serialized_qSpecs, vcenter, dc_cl_map, perf_info, ds_map = data
                         self._check_vc_refresh(vcenter)
-                        self.__log.debug("Collecting stats on {} QuerySpecs".format(len(serialized_qSpecs)))
-                        self.__log.debug("Deserialize qSpecs")
+                        self.__log.debug(f"Collecting stats on {len(serialized_qSpecs)} QuerySpecs")
+                        self.__log.debug(f"Deserialize qSpecs")
                         deserialized_specs = [SoapAdapter.Deserialize(spec) for spec in serialized_qSpecs.tolist()]
-                        self.__log.debug("Deserialize perf_info object")
+                        self.__log.debug(f"Deserialize perf_info object")
                         perf_info.deserialize()
-                        self.__log.debug("perfManager.QueryStats on deserialized qSpecs")
+                        self.__log.debug(f"perfManager.QueryStats on deserialized qSpecs")
                         query_results = self.vc_handles[vcenter].content.perfManager.QueryStats(querySpec=deserialized_specs)
-                        self.__log.debug("Processed {} QueryStats".format(len(query_results)))
+                        self.__log.debug(f"Processed {len(query_results)} QueryStats")
 
-                        self.__log.debug('End Query of QuerySpecs')
-                        self.__log.debug('Start Pickle Friendly object parse with {} results'.format(len(query_results)))
-                        self.__log.debug("Sending {} Stats to Queue".format(len(query_results)))
-                        self.__log.debug('query_results slice: {}'.format(query_results[0:2]))
+                        self.__log.debug(f'End Query of QuerySpecs')
+                        self.__log.debug(f'Start Pickle Friendly object parse with {len(query_results)} results')
+                        self.__log.debug(f"Sending {len(query_results)} Stats to Queue")
+                        self.__log.debug(f'query_results slice: {query_results[0:2]}')
 
                         for result in query_results:
                             # logger.debug(result)
@@ -132,52 +132,55 @@ class Statsd:
                                                           dc_cl_map[result.entity._moId]['cluster'])
                                 }
                              }
-                            # logger.debug('Sending dict {} to queue'.format(out_dict))
+                            # logger.debug(f'Sending dict {out_dict} to queue')
                             self.out_q.put_nowait(out_dict)
 
-                        self.__log.debug("Completed Sending {} Stats to Queue".format(len(query_results)))
-                        self.__log.debug('End Pickle Friendly object parse')
+                        self.__log.debug(f"Completed Sending {len(query_results)} Stats to Queue")
+                        self.__log.debug(f'End Pickle Friendly object parse')
+
                         self.tracker_q.put_nowait(q_id)
+                        self.__log.debug(
+                            f'Q_ID: {q_id} placed in the tracker_q.')
 
                 except queue.Empty:
                     if queue_empty_flag == 0:
-                        self.__log.debug("statsd agent complete")
+                        self.__log.debug(f"statsd agent complete")
                         queue_empty_flag = 1
                     # keep looping waiting for the queue not to be empty
                     pass
                 except BaseException as e:
-                    self.__log.debug("statsd agent SOMETHING WENT WRONG INSIDE LOOP!")
+                    self.__log.debug(f"statsd agent SOMETHING WENT WRONG INSIDE LOOP!")
                     for vc in list(self.vc_handles.keys()):
                         self.vc_handles[vc].disconnect()
                     if q_id:
                         self.tracker_q.put_nowait(q_id)
 
-                    self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+                    self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
-            self.__log.debug('Infinite loop has been broken')
+            self.__log.debug(f'Infinite loop has been broken')
         except BaseException as e:
-            self.__log.debug("statsd agent SOMETHING WENT WRONG OUTSIDE LOOP!")
+            self.__log.debug(f"statsd agent SOMETHING WENT WRONG OUTSIDE LOOP!")
             for vc in list(self.vc_handles.keys()):
                 self.vc_handles[vc].disconnect()
 
-            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def _refresh_vcenter_connection(self, vcenter):
 
         try:
             self.vc_handles[vcenter].connect()
         except BaseException as e:
-            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def _check_vc_refresh(self, vcenter):
         try:
             now = datetime.now()
             time_delta = now - self.vc_refresh_trkr[vcenter]
-            self.__log.debug('Time Delta: {}'.format(time_delta.seconds))
+            self.__log.debug(f'Time Delta: {time_delta.seconds}')
             # every 5 minutes refresh the connection
             if time_delta.seconds >= 300:
-                self.__log.debug('refreshing connection')
+                self.__log.debug(f'refreshing connection')
                 self._refresh_vcenter_connection(vcenter)
                 self.vc_refresh_trkr[vcenter] = datetime.now()
         except BaseException as e:
-            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')

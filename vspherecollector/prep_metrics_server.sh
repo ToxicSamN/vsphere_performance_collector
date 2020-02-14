@@ -161,6 +161,7 @@ sudo cp -f /u01/code/vsphere_performance_collector/services/metrics.conf /etc/me
 sudo cp -f /u01/code/vsphere_performance_collector/services/telegraf.conf /etc/telegraf/
 sudo cp -f /u01/code/vsphere_performance_collector/services/collect-vmmetrics.service /etc/systemd/system/
 sudo cp -f /u01/code/vsphere_performance_collector/services/collect-esxmetrics.service /etc/systemd/system/
+sudo cp -f /u01/code/vsphere_performance_collector/services/collect-dsmetrics.service /etc/systemd/system/
 sudo cp -f /u01/code/vsphere_performance_collector/services/startuplast.target /etc/systemd/system/
 sudo ln -sf /etc/systemd/system/startuplast.target /etc/systemd/system/default.target
 

@@ -46,7 +46,7 @@ class Parser:
             try:
                 # get the next item in the queue
                 data = self.in_q.get_nowait()
-                # logger.debug('data pulled from queue : {}'.format(data))
+                # logger.debug(f'data pulled from queue : {data}')
                 # send the raw data to be parsed into a dict format
                 queue_empty_flag = 0
 
@@ -59,7 +59,7 @@ class Parser:
 
                     if isinstance(json_series, list):
                         for i in json_series:
-                            # logger.info('Parsed JSON data: {}'.format(i.__str__()))
+                            # logger.info(f'Parsed JSON data: {i.__str__()}')
                             self.out_q.put_nowait(i)
 
             except queue.Empty:
@@ -72,7 +72,7 @@ class Parser:
                 #     did you see this comment? If so you might win a prize, let me know!
                 pass
             except BaseException as e:
-                self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+                self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
     def _parse_data(self, data):
         """
@@ -82,7 +82,7 @@ class Parser:
         """
 
         try:
-            self.__log.debug('_data_parser parsing data {}'.format(data))
+            self.__log.debug(f'_data_parser parsing data {data}')
             vcenter_name = list(data.keys())[0]
             data = data[vcenter_name]
             datacenter = data['datacenter']
@@ -92,11 +92,8 @@ class Parser:
             inf_env = data['inf.env']
             inf_role = data['inf.role']
             inf_security = data['inf.security']
-            self.__log.debug('vcenter: {}, dc: {}, cl: {}\nresults: {}'.format(vcenter_name,
-                                                                               datacenter,
-                                                                               cluster,
-                                                                               results))
-            self.__log.debug('sending to prep_n_send_data')
+            self.__log.debug(f'vcenter: {vcenter_name}, dc: {datacenter}, cl: {cluster}\nresults: {results}')
+            self.__log.debug(f'sending to prep_n_send_data')
             json_series = self._prep_n_send_data(datum=results,
                                                  vcenter=vcenter_name,
                                                  datacenter=datacenter,
@@ -105,17 +102,17 @@ class Parser:
                                                  inf_env=inf_env,
                                                  inf_role=inf_role,
                                                  inf_security=inf_security)
-            self.__log.debug("json_series size: {}".format(len(json_series)))
+            self.__log.debug(f'json_series size: {len(json_series)}')
 
             return json_series
 
         except BaseException as e:
-            self.__log.error('Parsing error: \nvCenter: {}'.format(vcenter_name))
-            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.error(f'Parsing error: \nvCenter: {vcenter_name}')
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
     @staticmethod
     def _parse_sample_data(sample_csv):
-        logger = logging.getLogger('{}.Parser.parse_sample_data'.format(__name__))
+        logger = logging.getLogger(f'{__name__}.Parser.parse_sample_data')
         try:
             samplecsv = sample_csv.split(',')
             sample_info = [SampleInfo(samplecsv[index], timeparser.parse(samplecsv[index + 1])) for index
@@ -123,7 +120,7 @@ class Parser:
                            range(int(len(samplecsv))) if index % 2 == 0]
             return sample_info
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
         return None
 
     def _prep_n_send_data(self, datum, vcenter, datacenter, cluster, ds_map={}, inf_env=None, inf_role=None,
@@ -135,13 +132,13 @@ class Parser:
         """
 
         try:
-            self.__log.debug('datum type: {}, datum: {}'.format(type(datum), datum))
+            self.__log.debug(f'datum type: {type(datum)}, datum: {datum}')
             json_series = []
             datadog_series = []
             if isinstance(datum, QueryResult):
-                self.__log.debug('datum is QueryResult')
+                self.__log.debug(f'datum is QueryResult')
                 data = datum
-                self.__log.debug('build meta lookup dict')
+                self.__log.debug(f'build meta lookup dict')
                 for metric in data.stat_value_csv:
                     if metric.metric_instance is None or metric.metric_instance == '':
                         metric.metric_instance = 'all'
@@ -149,11 +146,11 @@ class Parser:
                         metric.metric_instance = ds_map[metric.metric_instance]
                 meta_lookup = self.get_meta(data.stat_value_csv)
                 sample_data = self._parse_sample_data(data.sample_info_csv)
-                self.__log.debug('Meta_lookup: {}, sample_data: {}'.format(meta_lookup, sample_data))
+                self.__log.debug(f'Meta_lookup: {meta_lookup}, sample_data: {sample_data}')
                 for meta in list(meta_lookup.keys()):
-                    self.__log.debug('Meta: {}'.format(meta))
+                    self.__log.debug(f'Meta: {meta}')
                     for instance in list(meta_lookup[meta].keys()):
-                        self.__log.debug('metric instance: {}'.format(instance))
+                        self.__log.debug(f'metric instance: {instance}')
                         hostname = ''
                         if data.moref_type == 'HOST' or data.moref_type == 'VM':
                             hostname = self._get_fqdn(data.moref_name.lower())
@@ -182,8 +179,8 @@ class Parser:
                             'inf.vsphere.role': inf_role,
                             'inf.vsphere.security': inf_security
                         }
-                        self.__log.debug('tags: {}'.format(tags))
-                        self.__log.debug('Datadog tags: {}'.format(datadog_tags))
+                        self.__log.debug(f'tags: {tags}')
+                        self.__log.debug(f'Datadog tags: {datadog_tags}')
                         json_data = []
                         for index in meta_lookup[meta][instance]:
                             _data = data.stat_value_csv[index]
@@ -192,24 +189,24 @@ class Parser:
 
                         json_series.append(json_data)
             else:
-                raise TypeError('Unexpected type: {}. Requires type: {}'.format(type(datum), QueryResult))
+                raise TypeError(f'Unexpected type: {type(datum)}. Requires type: {QueryResult}')
 
             self.dd_q.put_nowait(datadog_series)
             return json_series
 
         except BaseException as e:
-            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception(f'Exception: {e}, \n Args: {e.args}')
 
         return None
 
     @staticmethod
     def _format_json(measurement, metric, tags, sample_data, json_series=[]):
-        logger = logging.getLogger('{}.Parser.format_json'.format(__name__))
-        logger.debug('starting _format_json: measurement: {}, tags: {}'.format(measurement, tags))
+        logger = logging.getLogger(f'{__name__}.Parser.format_json')
+        logger.debug(f'starting _format_json: measurement: {measurement}, tags: {tags}')
         try:
             _json_series = []
             if not isinstance(tags, dict):
-                raise TypeError("Parameter 'tags' expected type dict but received type '{}'".format(type(tags)))
+                raise TypeError(f"Parameter 'tags' expected type dict but received type '{type(tags)}'")
 
             for data in zip(metric.metric_value_csv.split(','), sample_data):
                 sample_time = datetime.utcfromtimestamp(data[1].sample_time.timestamp())
@@ -232,7 +229,7 @@ class Parser:
                     for d in json_series:
                         if d['time'] == influx_time:
                             d['fields'].update({
-                                str(metric.metric_name.replace("{}.".format(metric.metric_meta), '')): value,
+                                str(metric.metric_name.replace(f"{metric.metric_meta}.", '')): value,
                             })
                             break
                     _json_series = json_series
@@ -241,22 +238,22 @@ class Parser:
                         'time': influx_time,
                         'measurement': str(metric.metric_meta),
                         'fields': {
-                            str(metric.metric_name.replace("{}.".format(metric.metric_meta), '')): value,
+                            str(metric.metric_name.replace(f"{metric.metric_meta}.", '')): value,
                         },
                         'tags': tags,
                     }
                     _json_series.append(json_data)
-            logger.debug('json_data: {}'.format(_json_series))
+            logger.debug(f'json_data: {_json_series}')
             return _json_series
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
         return None
 
     @staticmethod
     def _format_datadog_json(metric, tags, sample_data):
         sample_times = [s.sample_time.timestamp() for s in sample_data]
         json_series = {
-            'metric': 'vsphere.{}'.format(metric.metric_name),
+            'metric': f'vsphere.{metric.metric_name}',
             'type': 'gauge',
             'points': list(zip(sample_times, metric.metric_value_csv.split(','))),
             'tags': tags.copy(),  # Need to copy this dict so that we can pop without affecting the original object
@@ -272,7 +269,7 @@ class Parser:
 
     @staticmethod
     def get_meta(metric_list):
-        logger = logging.getLogger('{}.Parser.get_meta'.format(__name__))
+        logger = logging.getLogger(f'{__name__}.Parser.get_meta')
         try:
             meta_lookup = {}
             index_track = 0
@@ -297,7 +294,7 @@ class Parser:
             logger.debug(meta_lookup.__str__())
             return meta_lookup
         except BaseException as e:
-            logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            logger.exception(f'Exception: {e}, \n Args: {e.args}')
         return None
 
     def _get_fqdn(self, name):
@@ -308,7 +305,7 @@ class Parser:
 
         except NXDOMAIN as e:
             self.__log.warning(
-                'Unable to locate a DNS record for {}.\nException: {} \n Args: {}'.format(name, e, e.args))
+                f'Unable to locate a DNS record for {name}.\nException: {e} \n Args: {e.args}')
 
         return fqdn
 

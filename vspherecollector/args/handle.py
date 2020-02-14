@@ -33,7 +33,7 @@ class Args:
 
         self.DEBUG = cmd_args.debug
         self.MOREF_TYPE = cmd_args.collector_type
-        self.running_threshold = cmd_args.threshold
+        self.running_threshold = int(cmd_args.threshold)
 
         # Parse through the provided conf
         parser = ConfigParser()

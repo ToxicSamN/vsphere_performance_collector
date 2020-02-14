@@ -127,7 +127,7 @@ class Datadog(object):
                         pass
             except queue.Empty:
                 if queue_empty_flag == 0:
-                    self.__log.debug("Datadog Complete")
+                    self.__log.info("Datadog Complete")
                     queue_empty_flag = 1
                 pass
             except BaseException as e:
@@ -254,11 +254,11 @@ class Datadog(object):
         return False
 
     def validate_api_response(self):
-        self.__log.info('Validating api response')
+        self.__log.debug('Validating api response')
         self.__log.debug("HTTP Response: {}".format(self.api_response.status_code))
         try:
             self.api_response.raise_for_status()
-            self.__log.info('API Response OK')
+            self.__log.debug('API Response OK')
         except requests.exceptions.HTTPError as e:
             self.__log.exception('Exception: {}'.format(e))
             raise e

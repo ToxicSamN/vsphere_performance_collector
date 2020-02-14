@@ -49,7 +49,7 @@ class InfluxDB:
                 json_data = self.in_q.get_nowait()
                 queue_empty_flag = 0
                 if json_data:
-
+                    self.__log.debug('Data received')
                     try:
                         if isinstance(json_data, list):
                             # logger.info('Sending {} stats'.format(len(json_data)))
@@ -76,7 +76,7 @@ class InfluxDB:
                         pass
             except queue.Empty:
                 if queue_empty_flag == 0:
-                    self.__log.debug("Influx Complete")
+                    self.__log.info("Influx Complete")
                     queue_empty_flag = 1
                 pass
             except BaseException as e:
