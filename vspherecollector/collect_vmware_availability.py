@@ -411,17 +411,8 @@ if __name__ == '__main__':
                     process_pool = []
                     vcenter_pool = []
                     for vcenter in args.vcenterNameOrIP:
-                        vc = Vcenter(name=vcenter, username=args.username)
-                        vcenter_pool.append(vc)
-                        process_pool.append(mp(target=main,
-                                               kwargs={'vcenter': vc,
-                                                       'agentq': aq,
-                                                       'agentrackq': atq,
-                                                       'args': args,
-                                                       'collector_type': args.MOREF_TYPE.lower()
-                                                       },
-                                               name=vcenter
-                                               ))
+                        # Fixme: Do stuff here
+                        print('')
 
                     # Join the process so that the While loop is halted until the process is complete
                     # or times out after max_running_threshold seconds
