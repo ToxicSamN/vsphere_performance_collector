@@ -257,7 +257,6 @@ if __name__ == '__main__':
                 code_version = line.split("=")[1].replace('\"', '').strip('\n').strip()
                 if not code_version == VERSION:
                     logging.info(f"Code Version change from current version {VERSION} to new version {code_version}")
-                    # Exit the agent.
                     # Since the agent should be ran as a service then the agent should automatically be restarted
                     for proc in proc_pool:
                         proc.terminate()
