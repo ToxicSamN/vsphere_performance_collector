@@ -7,24 +7,16 @@ This script very specific to the vmcollector VMs being used to collect VM perfor
 
 import sys
 import os
-import atexit
 import time
 import logging
 import queue
 import multiprocessing
 from multiprocessing import Process as mp
-from multiprocessing import cpu_count
-from configparser import ConfigParser
-from configparser import NoOptionError
+from requests.exceptions import HTTPError
 from datetime import datetime
-from pyVmomi import vim
-from pyVmomi import vmodl
-from pyVim import connect
-from pycrypt.encryption import AESCipher
-from vspherecollector.vmware.vcenter import Vcenter
-from vspherecollector.statsd.agent import Statsd
-from vspherecollector.statsd.collector import StatsCollector
-from vspherecollector.statsd.parse import Parser
+from vspherecollector.vmware.rest.client import CimSession
+from vspherecollector.vmware.rest.service import VCSAService
+from vspherecollector.vmware.rest.exceptions import VcenterServiceUnavailable, SessionAuthenticationException
 from vspherecollector.influx.client import InfluxDB
 from vspherecollector.datadog.handle import Datadog
 from vspherecollector.log.setup import LoggerSetup
@@ -65,7 +57,7 @@ def restart_proc(proc):
         logger.exception(f'Exception: {e}, \n Args: {e.args}')
 
 
-def new_bg_agents(num, sq, iq, aq, atq, dq):
+def new_bg_agents(num, iq, dq):
     logger = logging.getLogger(f'{__name__}.new_bg_agents')
     try:
         args = Args()
@@ -87,17 +79,6 @@ def new_bg_agents(num, sq, iq, aq, atq, dq):
                                                              'retries': 3,
                                                              }
                                                      ))
-            proc_pool.append(multiprocessing.Process(name=f'statsd_proc_{x}',
-                                                     target=Statsd,
-                                                     kwargs={'vcenter_list': vcenter_list,
-                                                             'in_q': aq,
-                                                             'out_q': sq,
-                                                             'tracker_q': atq
-                                                             }
-                                                     ))
-            proc_pool.append(multiprocessing.Process(name=f'parser_proc_{x}',
-                                                     target=Parser,
-                                                     kwargs={'statsq': sq, 'influxq': iq, 'datadogq': dq}))
 
             proc_pool.append(multiprocessing.Process(name=f'datadog_proc_{x}',
                                                      target=Datadog,
@@ -170,167 +151,53 @@ def waiter(process_pool, timeout_secs=60):
             break
 
 
-def main(vcenter, agentq, agentrackq, args, collector_type):
-    """
-    This is the main worker. The dude abides!
-    :return:
-    """
+def main(cim, influxq, datadogq):
+    main_logger = logging.getLogger(f'vcServices.{__name__}_')
 
-    main_logger = logging.getLogger(f'{__name__}.{collector_type}.main_func')
-    all_views = []
-    vc = vcenter
-    try:
-        # This would be the Main program execution
-        main_logger.info(f'Starting collect_metrics.py:  ARGS: {args.__dict__}')
+    while True:
+        try:
+            dt = datetime.now()
+            cim.login()
+            svc = VCSAService(cim_session=cim)
+            influxq.put(svc.list_all_services())
+            # Todo: datadog q is not used at this time
 
-        vc.connect()
-        atexit.register(vc.disconnect)
+            influx_json = {
+                'time': dt,
+                'measurement': 'vCenterAvailability',
+                'fields': {
+                    'state': 'available'
+                },
+                'tags': {
+                    'vcenter': cim.vcenter
+                }
+            }
+            influxq.put(influx_json)
 
-        if not vc.content:
-            raise BaseException(f'Unable to Connect to vCenter {vcenter}')
-
-        if collector_type.lower() == 'vm':
-            main_logger.debug(f"Collecting views for 'vim.VirtualMachine'")
-            all_views = []
-            ds_views = []
-            cl_view_tracker = []
-            cl_ds_view_tracker = []
-            for dc in vc.get_container_view([vim.Datacenter]):
-                all_vm_views = vc.get_container_view([vim.VirtualMachine],
-                                                     search_root=dc,
-                                                     filter_expression='runtime.powerState == poweredOn')
-                all_ds_views = vc.get_container_view([vim.Datastore],
-                                                     search_root=dc)
-                for cl in vc.get_container_view([vim.ClusterComputeResource], search_root=dc):
-                    main_logger.debug(f"Collecting PoweredOn VMs for cluster {cl.name}")
-                    all_cl_views = vc.get_container_view([vim.VirtualMachine],
-                                                         search_root=cl,
-                                                         filter_expression='runtime.powerState == poweredOn')
-                    main_logger.debug(f'Found {len(all_cl_views)} VMs in cluster {cl.name}')
-
-                    all_cl_ds_views = None
-                    if all_cl_views:
-                        all_cl_ds_views = cl.datastore
-                        cl_view_tracker = cl_view_tracker.__add__(all_cl_views)
-                        all_views = all_views.__add__(list(
-                            zip(all_cl_views,
-                                [dc.name] * len(all_cl_views),
-                                [cl.name] * len(all_cl_views)
-                                )
-                        ))
-                    if all_cl_ds_views:
-                        cl_ds_view_tracker = cl_ds_view_tracker.__add__(all_cl_ds_views)
-                        ds_views = ds_views.__add__(list(
-                            zip(all_cl_ds_views,
-                                [dc.name] * len(all_cl_ds_views),
-                                [cl.name] * len(all_cl_ds_views)
-                                )
-                        ))
-                no_cl_views = list(set(all_vm_views) - set(cl_view_tracker))
-                no_cl_ds_views = list(set(all_ds_views) - set(cl_view_tracker))
-
-                if no_cl_views:
-                    main_logger.debug(f'Found {len(no_cl_views)} VMs not in any Cluster')
-                    # These have no cluster
-                    all_views = all_views.__add__(list(
-                        zip(no_cl_views,
-                            [dc.name] * len(no_cl_views),
-                            ['NoCluster'] * len(no_cl_views)
-                            )
-                    ))
-
-                if no_cl_ds_views:
-                    # These have no cluster
-                    ds_views = ds_views.__add__(list(
-                        zip(no_cl_ds_views,
-                            [dc.name] * len(no_cl_ds_views),
-                            ['NoCluster'] * len(no_cl_ds_views)
-                            )
-                    ))
-
-        if collector_type.lower() == 'datastore':
-            main_logger.debug(f"Collecting views for 'vim.Datastore'")
-            all_views = []
-            cl_view_tracker = []
-            cl_ds_view_tracker = []
-            for dc in vc.get_container_view([vim.Datacenter]):
-                all_ds_views = vc.get_container_view([vim.Datastore],
-                                                     search_root=dc)
-                for cl in vc.get_container_view([vim.ClusterComputeResource], search_root=dc):
-                    main_logger.debug(f"Collecting Datastores for cluster {cl.name}")
-
-                    all_cl_ds_views = cl.datastore
-
-                    if all_cl_ds_views:
-                        cl_ds_view_tracker = cl_ds_view_tracker.__add__(all_cl_ds_views)
-                        all_views = all_views.__add__(list(
-                            zip(all_cl_ds_views,
-                                [dc.name] * len(all_cl_ds_views),
-                                [cl.name] * len(all_cl_ds_views)
-                                )
-                        ))
-                no_cl_ds_views = list(set(all_ds_views) - set(cl_view_tracker))
-
-                if no_cl_ds_views:
-                    # These have no cluster
-                    all_views = all_views.__add__(list(
-                        zip(no_cl_ds_views,
-                            [dc.name] * len(no_cl_ds_views),
-                            ['NoCluster'] * len(no_cl_ds_views)
-                            )
-                    ))
-
-        elif collector_type.lower() == 'host':
-            main_logger.debug(f"Collecting views for 'vim.HostSystem'")
-            all_views = []
-            cl_view_tracker = []
-            for dc in vc.get_container_view([vim.Datacenter]):
-                all_host_views = vc.get_container_view([vim.HostSystem], search_root=dc)
-                for cl in vc.get_container_view([vim.ClusterComputeResource], search_root=dc):
-                    main_logger.debug(f"Collecting Esxi hosts for cluster {cl.name}")
-                    all_cl_views = vc.get_container_view([vim.HostSystem],
-                                                         search_root=cl)
-                    if all_cl_views:
-                        main_logger.debug(f'Found {len(all_cl_views)} hosts in cluster {cl.name}')
-                        cl_view_tracker = cl_view_tracker.__add__(all_cl_views)
-                        all_views = all_views.__add__(list(
-                            zip(all_cl_views,
-                                [dc.name] * len(all_cl_views),
-                                [cl.name] * len(all_cl_views)
-                                )
-                        ))
-                no_cl_views = list(set(all_host_views) - set(cl_view_tracker))
-                if no_cl_views:
-                    main_logger.debug(f'Found {len(no_cl_views)} hosts not in any Cluster')
-                    # These have no cluster
-                    all_views = all_views.__add__(list(
-                        zip(no_cl_views,
-                            [dc.name] * len(no_cl_views),
-                            ['NoCluster'] * len(no_cl_views)
-                            )
-                    ))
-
-        elif collector_type.lower() == 'cluster':
-            all_views = vc.get_container_view([vim.ClusterComputeResource])
-
-        if all_views:
-            statsd = StatsCollector(vc)
-
-            main_logger.info(f'Statsd Query Begin')
-            statsd.query_stats(agentq, agentrackq, all_views)
-
-        vc.disconnect()
-
-        return 0
-    except BaseException as e:
-        if vc.si:
-            connect.Disconnect(vc.si)
-        main_logger.exception(f'Exception: {e}, \n Args: {e.args}')
+        except SessionAuthenticationException as e:
+            main_logger.exception(e)
+        except VcenterServiceUnavailable as e:
+            influx_json = {
+                'time': dt,
+                'measurement': 'vCenterAvailability',
+                'fields': {
+                    'state': 'unavailable'
+                },
+                'tags': {
+                    'vcenter': cim.vcenter
+                }
+            }
+            influxq.put(influx_json)
+            main_logger.exception(e)
+        except HTTPError as e:
+            main_logger.exception(e)
+        finally:
+            cim.logout()
 
 
 if __name__ == '__main__':
     args = Args()
-    watch_24_start = datetime.now()
+    watch_60_start = datetime.now()
 
     try:
         # root_logger.info('Code Version : {VERSION}')
@@ -338,53 +205,47 @@ if __name__ == '__main__':
         sample_size = 15  # default sample_size value of 3 samples or 1 minute
         vcenter_pool = []
 
-        main_program_running_threshold = args.running_threshold
-        over_watch_threshold = 86400 - 13  # 24 hours - 13 seconds
+        main_program_running_threshold = 3600
+        over_watch_threshold = 3600
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
-        # statsd_queue for the parser process
-        sq = queue_manager.Queue()
-        # influxdb_queue for the inlfuxdb process to send the stats
-        iq = queue_manager.Queue()
-        # agent_queue for the statsd process to query perfmanager
-        aq = queue_manager.Queue()
-        # agent_tracker_queue for the statsd process to query perfmanager
-        atq = queue_manager.Queue()
+        iq = queue_manager.Queue(100)
         # datadog_queue for the datadog process to send the stats
-        dq = queue_manager.Queue()
+        dq = queue_manager.Queue(100)
+        queue_manager.start()
 
         # Setup the background processes
         vcenter_list = args.vcenterNameOrIP
-        proc_pool = new_bg_agents(cpu_count(), sq, iq, aq, atq, dq)
+        proc_pool = new_bg_agents(1, iq, dq)
 
         # This code will be ran from a systemd service
         # so this needs to be an infinite loop
         while True:
             try:
                 logger.info(f'Code Version : {VERSION}')
-                watch_24_now = datetime.now()
-                watch_delta = watch_24_now - watch_24_start
-                logger.info(f"Service Time Remaining Before Service Restart: {over_watch_threshold - watch_delta.seconds} second(s)")
+                watch_60_now = datetime.now()
+                watch_delta = watch_60_now - watch_60_start
+                logger.info(
+                    f"Service Time Remaining Before Service Restart: {over_watch_threshold - watch_delta.seconds} second(s)")
                 if watch_delta.seconds >= over_watch_threshold:
                     logging.info(
                         f"Overall runtime running {watch_delta.seconds} seconds. Restarting the program to flush memory and processes")
-                    # Exit the agent.
+                    # shutdown the queue.
                     try:
                         # Wait for the influx_q to be flushed
                         while not iq.empty() or dq.empty():
                             logger.debug(f'Waiting on the influx_q to flush out before restarting the program...')
                     except queue.Empty:
-                        sys.exit(-1)
-                        break
+                        queue_manager.shutdown()
                     except BaseException:
-                        sys.exit(-1)
-                        break
+                        queue_manager.shutdown()
 
                     # Since the agent should be ran as a service then the agent should automatically be restarted
                     for proc in proc_pool:
                         proc.terminate()
-                    sys.exit(-1)
+
+                    queue_manager.start()
 
                 # check if the background process for parsing and influx are still running
                 check_bg_process()
@@ -410,15 +271,20 @@ if __name__ == '__main__':
                     # execute the main function as a process so that it can be monitored for running time
                     process_pool = []
                     vcenter_pool = []
+                    cred = Credential(username='oppvmwre')
+                    c = cred.get_credential()
                     for vcenter in args.vcenterNameOrIP:
-                        vc = Vcenter(name=vcenter, username=args.username)
-                        vcenter_pool.append(vc)
+                        cim = CimSession(
+                            vcenter=vcenter,
+                            **c,
+                            ssl_verify=False,
+                            ignore_weak_ssl=True
+                        )
+                        vcenter_pool.append(cim)
                         process_pool.append(mp(target=main,
-                                               kwargs={'vcenter': vc,
-                                                       'agentq': aq,
-                                                       'agentrackq': atq,
-                                                       'args': args,
-                                                       'collector_type': args.MOREF_TYPE.lower()
+                                               kwargs={'cim': cim,
+                                                       'influxq': iq,
+                                                       'datadogq': dq
                                                        },
                                                name=vcenter
                                                ))
