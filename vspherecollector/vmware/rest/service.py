@@ -17,7 +17,7 @@ class Service(object):
         self.state = service_dict['value'].get('state' or None)
 
 
-@addClassLogger()
+@addClassLogger
 class VCSAService(ApplianceAPI):
 
     def __init__(self, cim_session):

@@ -7,6 +7,6 @@ export PYTHONPATH=/u01/code/vsphere_performance_collector
 echo $PYTHONPATH
 cd /u01/code/vsphere_performance_collector/vspherecollector
 
-COMMAND="python collect_vmware_availability.py --collector-type DATASTORE --config-file /etc/metrics/metrics.conf --threshold 3590"
+COMMAND="python collect_vmware_availability.py --collector-type VCSERVICES --config-file /etc/metrics/vc_metrics.conf"
 	
 RETURN=$($COMMAND)

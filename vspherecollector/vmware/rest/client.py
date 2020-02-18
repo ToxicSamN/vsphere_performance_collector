@@ -133,7 +133,6 @@ class CimSession(requests.Session):
         self.response_data = self.response.content
         self.response_json_to_dict()
 
-
         # raise an exception if something went wrong
         self.response.raise_for_status()
         return self.response
