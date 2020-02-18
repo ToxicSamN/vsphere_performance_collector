@@ -2,6 +2,8 @@
 import json
 from datetime import datetime
 from vspherecollector.vmware.rest.client import ApplianceAPI
+from vspherecollector.log.setup import addClassLogger
+
 
 class Service(object):
 
@@ -15,6 +17,7 @@ class Service(object):
         self.state = service_dict['value'].get('state' or None)
 
 
+@addClassLogger()
 class VCSAService(ApplianceAPI):
 
     def __init__(self, cim_session):
@@ -24,30 +27,21 @@ class VCSAService(ApplianceAPI):
 
         self.base_url += 'vmon/service'
 
-    def get_status(self, service):
+    def get_status(self, service) -> dict:
         url = self.base_url + f'/{service}'
+        self.__log.info(f'Collecting status for service: {service}')
         self.session.get(url)
-        self._parse_services()
+        return self._parse_services()
 
     def list_all_services(self) -> dict:
+        self.__log.info(f'Collecting status for all services in vCenter {self.session.vcenter}')
         self.session.get(self.base_url)
         return self._parse_services()
 
     def _parse_services(self) -> dict:
         dt = datetime.now()
         d = json.loads(self.session.response.content.decode())
-
-        # time: time
-        # measurement: vcServices
-        # fields: [
-        #     vpxd: status,
-        #     vsan: status,
-        #     webclient: status,
-        # ]
-        # tags: [
-        #     vcenter: vcname,
-        # ]
-        # self.services = [Service(s) for s in d['value']]
+        self.__log.debug(f'Parsing results: {d}')
 
         influx_json = {
             'time': dt,
@@ -59,17 +53,6 @@ class VCSAService(ApplianceAPI):
                 'vcenter': self.session.vcenter
             }
         }
-        # influx_json_2 = {
-        #     'time': d,
-        #     'measurement': '',
-        #     'fields': {
-        #         'state': '',
-        #         'health': ''
-        #     },
-        #     'tags': {
-        #         'vcenter': self.session.vcenter
-        #     }
-        # }
 
         for s in d['value']:
             ss = s["value"].get("state" or "NA")
