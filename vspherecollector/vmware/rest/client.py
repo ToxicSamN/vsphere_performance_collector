@@ -56,7 +56,7 @@ class CimSession(requests.Session):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def _setup(self):
-        return SessionRetry(session=self).get()
+        return SessionRetry(session=self, retries=1).get()
 
     def response_json_to_dict(self):
         self.response_data = json.loads(self.response_data.decode('utf8'))
@@ -74,6 +74,8 @@ class CimSession(requests.Session):
             if e.response.status_code == 503:
                 # Vcenter service offline
                 raise VcenterServiceUnavailable("vCenter Service Unavailable")
+
+            raise VcenterServiceUnavailable("vCenter Service Unavailable")
 
     def logout(self):
         response = self.delete(self._session_url)

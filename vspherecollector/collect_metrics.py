@@ -1,8 +1,8 @@
 VERSION = "2.3.6-15"
 """
-This script very specific to the vmcollector VMs being used to collect VM performance data.
- Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
- with as granular sampling as possible, in which case for VMware is 20 second sample intervals.
+This code is very specific to the ollector VMs being used to collect VM performance data.
+The goal is to be able to collect all VM stats with as granular sampling as possible, in 
+which case for VMware is 20 second sample intervals.
 """
 
 import sys
@@ -50,6 +50,11 @@ proc_pool = []
 
 
 def restart_proc(proc):
+    """
+    Function to restart the background processes
+    :param proc:
+    :return: None
+    """
     try:
         logger.debug(f'restart_proc initializing')
         if hasattr(proc, '_target'):
@@ -66,13 +71,21 @@ def restart_proc(proc):
 
 
 def new_bg_agents(num, sq, iq, aq, atq, dq):
+    """
+    Creates new background agents based on the CPU count of the VM
+
+    :param num: Number of processes to initiallize for each services
+    :param sq: statsd queue used by the parser
+    :param iq: influxdb queue
+    :param aq: agent queue used by the statsd
+    :param atq: agent trcker queue
+    :param dq: datadog queue
+    :return: multiprocessor pool
+    """
     logger = logging.getLogger(f'{__name__}.new_bg_agents')
     try:
         args = Args()
         proc_pool = []
-        # only need a single parser process as this process is as effecient as can be
-
-        # for x in range(int(2)):
 
         for x in range(int(num)):
             proc_pool.append(multiprocessing.Process(name=f'influx_proc_{x}',
@@ -113,6 +126,11 @@ def new_bg_agents(num, sq, iq, aq, atq, dq):
 
 
 def check_bg_process(proc=None):
+    """
+    Multiprocess check to see if the processes are alive or not and restarts it if necessary
+    :param proc:
+    :return:
+    """
     global proc_pool
 
     new_proc_pool = proc_pool.copy()
@@ -143,7 +161,12 @@ def check_bg_process(proc=None):
 
 
 def waiter(process_pool, timeout_secs=60):
-
+    """
+    Multiprocess waiter function to wait for the functions to end or until timeout at timeout_secs
+    :param process_pool:
+    :param timeout_secs:
+    :return:
+    """
     logger = logging.getLogger(f'{__name__}.waiter')
     start_time = datetime.now()
     proc_status = {}
@@ -317,6 +340,7 @@ def main(vcenter, agentq, agentrackq, args, collector_type):
             statsd = StatsCollector(vc)
 
             main_logger.info(f'Statsd Query Begin')
+            # send thr views to the statsd collector queue
             statsd.query_stats(agentq, agentrackq, all_views)
 
         vc.disconnect()
