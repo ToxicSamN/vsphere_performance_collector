@@ -1,0 +1,197 @@
+version: 1
+disable_existing_loggers: False
+        
+formatters:
+    standard: 
+        format: "%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s"
+        datefmt: "%Y-%m-%d %H:%M:%S"
+
+handlers: 
+    default: 
+        level: DEBUG
+        class: logging.StreamHandler
+        stream: ext://sys.stdout
+        formatter: standard
+    
+    err_console: 
+        level: ERROR
+        class: logging.StreamHandler
+        stream: ext://sys.stderr
+        formatter: standard
+
+    syslog_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/code/log/vcenter_collector/syslog
+        maxBytes: 524288000  #500MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/collect_metrics.log
+        maxBytes: 10485760  #10MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    err_file:
+        level: ERROR
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/collect_metrics_err.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+    vcServices_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/vcServices.log
+        maxBytes: 10485760  #10MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    statsd_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/stats.log
+        maxBytes: 10485760  #10MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    statsd_err_file:
+        level: ERROR
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/stats_err.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+    statsd_agent_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/statsd_agent.log
+        maxBytes: 10485760  #10MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    statsd_agent_err_file:
+        level: ERROR
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/statsd_agent_err.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+    parser_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/parser.log
+        maxBytes: 10485760  #10MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    parser_err_file:
+        level: ERROR
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/parser_err.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+    influxd_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/influx.log
+        maxBytes: 10485760  #10MB
+        backupCount: 8
+        formatter: standard
+        encoding: utf8
+
+    influxd_err_file:
+        level: ERROR
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/influx_err.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+    datadog_file:
+        level: DEBUG
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/datadog.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+    datadog_err_file:
+        level: ERROR
+        class: logging.handlers.RotatingFileHandler
+        filename: /Users/x3kw/log/vcenter_collector/datadog_err.log
+        maxBytes: 10485760  #10MB
+        backupCount: 20
+        formatter: standard
+        encoding: utf8
+
+loggers: 
+    __main__: 
+        handlers: [default, syslog_file, file, err_file]
+        level: INFO
+        propagate: False
+
+    vcServices:
+        handlers: [vcServices_file, syslog_file]
+        level: INFO
+        propogate: False
+
+    vspherecollector:
+        handlers: [default, syslog_file, file, err_file]
+        level: INFO
+        propagate: False
+
+    vspherecollector.statsd:
+        handlers: [default, syslog_file, statsd_file, statsd_err_file]
+        level: INFO
+        propagate: False
+
+    vspherecollector.vmware:
+        handlers: [default, syslog_file, file, err_file]
+        level: INFO
+        propagate: False
+
+    vspherecollector.influx.client:
+        handlers: [default, syslog_file, influxd_file, influxd_err_file]
+        level: DEBUG
+        propagate: False
+
+    vspherecollector.datadog:
+        handlers: [default, syslog_file, datadog_file, datadog_err_file]
+        level: INFO
+        propagate: False
+
+    vspherecollector.statsd.agent:
+        handlers: [default, syslog_file, statsd_file, statsd_agent_file, statsd_agent_err_file]
+        level: INFO
+        propagate: False
+
+    vspherecollector.statsd.parse:
+        handlers: [default, syslog_file, statsd_file, parser_file, parser_err_file]
+        level: INFO
+        propagate: False
+
+root: 
+    level: INFO
+    handlers: [default]
+

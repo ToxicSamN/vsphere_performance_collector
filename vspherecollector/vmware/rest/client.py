@@ -7,6 +7,9 @@ from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 from requests.exceptions import ConnectionError, ConnectTimeout, SSLError
 from vspherecollector.vmware.rest.exceptions import SessionAuthenticationException, VcenterServiceUnavailable
+from requests.exceptions import (ConnectionError, ConnectTimeout, ReadTimeout, SSLError,
+                         ProxyError, RetryError, InvalidSchema, InvalidProxyURL,
+                         InvalidURL)
 
 
 BASE_URL = 'https://{}/rest/appliance/'
@@ -75,6 +78,11 @@ class CimSession(requests.Session):
                 # Vcenter service offline
                 raise VcenterServiceUnavailable("vCenter Service Unavailable")
 
+            raise VcenterServiceUnavailable("vCenter Service Unavailable")
+        except ConnectionError as e:
+            raise VcenterServiceUnavailable("vCenter Service Unavailable")
+        except BaseException as e:
+            # catch-all exception
             raise VcenterServiceUnavailable("vCenter Service Unavailable")
 
     def logout(self):

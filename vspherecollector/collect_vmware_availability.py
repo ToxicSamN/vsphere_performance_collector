@@ -1,4 +1,4 @@
-VERSION = "1.0.0-9"
+VERSION = "1.0.1-1"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
@@ -152,6 +152,38 @@ def waiter(process_pool, timeout_secs=60):
             break
 
 
+def VcenterUnavailable(vcenter, timestamp, influxq):
+    influx_json = {
+        'time': timestamp,
+        'measurement': 'vCenterAvailability',
+        'fields': {
+            'available': 0,
+            'unavailable': 1
+        },
+        'tags': {
+            'vcenter': cim.vcenter
+        }
+    }
+    influxq.put_nowait(influx_json)
+
+    for s in ['vpxd', 'vpxd-svcs', 'vmware-vpostgres', 'rbd', 'imagebuilder']:
+        influx_json = {
+            'time': timestamp,
+            'measurement': f'vcServices.{s}',
+            'fields': {
+                'started': 0,
+                'stopped': 1,
+                'healthy': 0,
+                'warning': 0,
+                'degraded': 0
+            },
+            'tags': {
+                'vcenter': vcenter
+            }
+        }
+        influxq.put_nowait(influx_json)
+
+
 def main(cim, influxq, datadogq):
     main_logger = logging.getLogger(f'vcServices.{cim.vcenter}')
 
@@ -159,14 +191,12 @@ def main(cim, influxq, datadogq):
     time.sleep(10 - (datetime.now().second % 10))
 
     while True:
+        dt = datetime.utcnow()
         try:
-            dt = datetime.utcnow()
+            print("go now")
             main_logger.info(f"Collecting at : {dt}")
-            cim.login()
-            svc = VCSAService(cim_session=cim)
-            influxq.put(svc.list_all_services())
-            # Todo: datadog q is not used at this time
 
+            cim.login()
             influx_json = {
                 'time': dt,
                 'measurement': 'vCenterAvailability',
@@ -180,22 +210,17 @@ def main(cim, influxq, datadogq):
             }
             influxq.put_nowait(influx_json)
 
+            svc = VCSAService(cim_session=cim)
+            influxq.put(svc.list_all_services())
+            # Todo: datadog q is not used at this time
+
         except SessionAuthenticationException as e:
             main_logger.exception(e)
+
         except VcenterServiceUnavailable as e:
-            influx_json = {
-                'time': dt,
-                'measurement': 'vCenterAvailability',
-                'fields': {
-                    'available': 0,
-                    'unavailable': 1
-                },
-                'tags': {
-                    'vcenter': cim.vcenter
-                }
-            }
-            influxq.put_nowait(influx_json)
+            VcenterUnavailable(cim.vcenter, dt, influxq)
             main_logger.exception(e)
+
         except HTTPError as e:
             main_logger.exception(e)
             if e.response.status_code == 401:
