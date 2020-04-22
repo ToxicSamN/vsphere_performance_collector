@@ -46,11 +46,11 @@ class SessionRetry:
 class CimSession(requests.Session):
 
     def __init__(self, vcenter, username, password, ssl_verify=True, ignore_weak_ssl=False):
+        super().__init__()
         self._session_url = CIM_URL.format(vcenter)
         self.vcenter = vcenter
         self.response = None
         self.response_data = None
-        super().__init__()
         self.auth = HTTPBasicAuth(username=username, password=password)
         self.verify = ssl_verify
         self._setup()
@@ -66,7 +66,7 @@ class CimSession(requests.Session):
 
     def login(self):
         try:
-            response = self.post(self._session_url)
+            response = self.post(self._session_url, timeout=4)  # 8 second timeout
             self.headers.update(
                 {'vmware-api-session-id': json.loads(response.content.decode('utf8'))['value']})
             return self

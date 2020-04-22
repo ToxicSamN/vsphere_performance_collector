@@ -90,11 +90,11 @@ class VCSAService(ApplianceAPI):
             healthy_value = -1
             warn_value = -1
             degrade_value = -1
-            if s['value'].get('health' or False):
-                # health value exists, means service should be started
-                healthy_value = 1 if s['value']['health'].lower() == "healthy" else 0
-                warn_value = 1 if s['value']['health'].lower() == "healthy_with_warnings" else 0
-                degrade_value = 1 if s['value']['health'].lower() == "degraded" else 0
+            if s['value']['startup_type'].lower() == 'automatic':
+                # automatic value, means service should be started
+                healthy_value = 1 if s['value'].get('health', '').lower() == "healthy" else 0
+                warn_value = 1 if s['value'].get('health', '').lower() == "healthy_with_warnings" else 0
+                degrade_value = 1 if s['value'].get('health', '').lower() == "degraded" else 0
 
             influx_json['fields']['started'] = started_value
             influx_json['fields']['stopped'] = stopped_value
@@ -103,5 +103,6 @@ class VCSAService(ApplianceAPI):
             influx_json['fields']['degraded'] = degrade_value
 
             influx_json_series.append(influx_json)
+            self.__log.debug(f"ParsedToJSON: {influx_json}")
 
         return influx_json_series

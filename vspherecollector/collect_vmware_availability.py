@@ -1,4 +1,4 @@
-VERSION = "1.0.1-1"
+VERSION = "1.1.0-2"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
@@ -31,6 +31,7 @@ sys.path.append(BASE_DIR)
 args = Args()
 
 log_setup = LoggerSetup(yaml_file=f'{BASE_DIR}/logging_config.yml')
+# log_setup = LoggerSetup(yaml_file=f'{BASE_DIR}/../testing_logging_config.yml')
 if args.DEBUG:
     log_setup.set_loglevel(loglevel='DEBUG')
 
@@ -73,6 +74,7 @@ def new_bg_agents(num, iq, dq):
                                                      kwargs={'influxq': iq,
                                                              'host': args.TelegrafIP,
                                                              'port': args.prod_port,
+                                                             #'port': args.nonprod_port,
                                                              'username': 'anonymous',
                                                              'password': 'anonymous',
                                                              'database': 'perf_stats',
@@ -161,12 +163,14 @@ def VcenterUnavailable(vcenter, timestamp, influxq):
             'unavailable': 1
         },
         'tags': {
-            'vcenter': cim.vcenter
+            'vcenter': vcenter
         }
     }
+    logger.debug(f"ParsedToJSON: {influx_json}")
     influxq.put_nowait(influx_json)
 
-    for s in ['vpxd', 'vpxd-svcs', 'vmware-vpostgres', 'rbd', 'imagebuilder']:
+
+    for s in ['vpxd', 'vpxd-svcs', 'vmware-vpostgres', 'rbd', 'imagebuilder', "vsphere-ui"]:
         influx_json = {
             'time': timestamp,
             'measurement': f'vcServices.{s}',
@@ -174,23 +178,33 @@ def VcenterUnavailable(vcenter, timestamp, influxq):
                 'started': 0,
                 'stopped': 1,
                 'healthy': 0,
-                'warning': 0,
+                'warning': 1,
                 'degraded': 0
             },
             'tags': {
                 'vcenter': vcenter
             }
         }
+        logger.debug(f"ParsedToJSON: {influx_json}")
         influxq.put_nowait(influx_json)
 
 
-def main(cim, influxq, datadogq):
-    main_logger = logging.getLogger(f'vcServices.{cim.vcenter}')
+def main(cim, vcenter, influxq, datadogq):
+    cim = CimSession(
+        vcenter=vcenter,
+        username=cim.auth.username,
+        password=cim.auth.password,
+        ignore_weak_ssl=True,
+        ssl_verify=cim.verify
+    )
+    main_logger = logging.getLogger(f'vcServices.{vcenter}')
 
     # intial sleep timer to align the run times to every 10 seconds
     time.sleep(10 - (datetime.now().second % 10))
 
     while True:
+    # while count < 7:
+
         dt = datetime.utcnow()
         try:
             print("go now")
@@ -242,8 +256,10 @@ if __name__ == '__main__':
         sample_size = 15  # default sample_size value of 3 samples or 1 minute
         vcenter_pool = []
 
-        main_program_running_threshold = 3600
-        over_watch_threshold = 3600
+        # FIXME main_program_running_threshold = 3600
+        main_program_running_threshold = 67
+        # FIXME over_watch_threshold = 3600
+        over_watch_threshold = 67
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
@@ -319,6 +335,7 @@ if __name__ == '__main__':
                         vcenter_pool.append(cim)
                         process_pool.append(mp(target=main,
                                                kwargs={'cim': cim,
+                                                       'vcenter': vcenter,
                                                        'influxq': iq,
                                                        'datadogq': dq
                                                        },
