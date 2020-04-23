@@ -1,4 +1,4 @@
-VERSION = "1.1.0-2"
+VERSION = "1.1.0-3"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
