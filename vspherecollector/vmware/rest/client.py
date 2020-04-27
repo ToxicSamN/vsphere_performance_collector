@@ -59,14 +59,14 @@ class CimSession(requests.Session):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def _setup(self):
-        return SessionRetry(session=self, retries=3).get()
+        return SessionRetry(session=self, retries=1).get()
 
     def response_json_to_dict(self):
         self.response_data = json.loads(self.response_data.decode('utf8'))
 
     def login(self):
         try:
-            response = self.post(self._session_url, timeout=2.75)  # 8 second timeout
+            response = self.post(self._session_url, timeout=10)  # 10 second timeout
             self.headers.update(
                 {'vmware-api-session-id': json.loads(response.content.decode('utf8'))['value']})
             return self
