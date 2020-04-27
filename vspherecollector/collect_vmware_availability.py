@@ -1,4 +1,4 @@
-VERSION = "1.1.0-3"
+VERSION = "1.1.1"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
@@ -169,7 +169,6 @@ def VcenterUnavailable(vcenter, timestamp, influxq):
     logger.debug(f"ParsedToJSON: {influx_json}")
     influxq.put_nowait(influx_json)
 
-
     for s in ['vpxd', 'vpxd-svcs', 'vmware-vpostgres', 'rbd', 'imagebuilder', "vsphere-ui"]:
         influx_json = {
             'time': timestamp,
@@ -202,15 +201,33 @@ def main(cim, vcenter, influxq, datadogq):
     # intial sleep timer to align the run times to every 10 seconds
     time.sleep(10 - (datetime.now().second % 10))
 
+    dt_start = datetime.utcnow()
+    try:
+        # attempt to login
+        cim.login()
+    except VcenterServiceUnavailable as e:
+        VcenterUnavailable(cim.vcenter, dt_start, influxq)
+        main_logger.exception(e)
+
     while True:
     # while count < 7:
 
-        dt = datetime.utcnow()
+        # guard condition for time sync
+        if dt_start:
+            dt = dt_start
+            dt_start = None
+        else:
+            dt = datetime.utcnow()
+
         try:
             print("go now")
             main_logger.info(f"Collecting at : {dt}")
 
-            cim.login()
+            # collect the services, if not login then another attempt will be made in except
+            svc = VCSAService(cim_session=cim)
+            influx_json_series = svc.list_all_services()
+            influxq.put(influx_json_series)
+
             influx_json = {
                 'time': dt,
                 'measurement': 'vCenterAvailability',
@@ -223,10 +240,6 @@ def main(cim, vcenter, influxq, datadogq):
                 }
             }
             influxq.put_nowait(influx_json)
-
-            svc = VCSAService(cim_session=cim)
-            influxq.put(svc.list_all_services())
-            # Todo: datadog q is not used at this time
 
         except SessionAuthenticationException as e:
             main_logger.exception(e)
@@ -256,10 +269,10 @@ if __name__ == '__main__':
         sample_size = 15  # default sample_size value of 3 samples or 1 minute
         vcenter_pool = []
 
-        # FIXME main_program_running_threshold = 3600
-        main_program_running_threshold = 67
-        # FIXME over_watch_threshold = 3600
-        over_watch_threshold = 67
+        main_program_running_threshold = 3600
+        # main_program_running_threshold = 67
+        over_watch_threshold = 3600
+        # over_watch_threshold = 67
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
