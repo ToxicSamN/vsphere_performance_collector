@@ -1,4 +1,4 @@
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
@@ -253,7 +253,11 @@ def main(cim, vcenter, influxq, datadogq):
             if e.response.status_code == 401:
                 # login session expired
                 main_logger.info("Possible Session timeout. Run cim.login()")
-                cim.login()
+                try:
+                    cim.login()
+                except VcenterServiceUnavailable as e:
+                    VcenterUnavailable(cim.vcenter, dt, influxq)
+                    main_logger.exception(e)
 
         # need to run every 10 seconds
         time.sleep(10 - (datetime.now().second % 10))
