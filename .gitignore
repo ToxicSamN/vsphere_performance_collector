@@ -118,3 +118,5 @@ credstore_notes.txt
 *testing.py
 testing.py
 testing*.py
+.DS_Store
+.DS_Store

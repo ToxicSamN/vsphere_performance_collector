@@ -28,7 +28,7 @@ class InfluxDB:
         try:
             self._run()
         except BaseException as e:
-            self.logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+            self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
     def __create_influx_client(self):
         return InfluxDBClient(host=self.__host,
@@ -68,7 +68,7 @@ class InfluxDB:
                         # Writing to InfluxDB was unsuccessful. For now let's just try to resend
                         self.__log.error('Failed to Send influx data {}'.format(json_data))
                         self.__log.info('Retry Sending stats: {}'.format(json_data))
-                        self.logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
+                        self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
                         self.client.write_points(points=json_data,
                                                  time_precision='s',
                                                  protocol='json'
@@ -82,4 +82,4 @@ class InfluxDB:
             except BaseException as e:
                 self.__log.exception('Exception: {}, \n Args: {}'.format(e, e.args))
 
-        logger.info('InfluxDB process Stopped')
+        self.__log.info('InfluxDB process Stopped')
