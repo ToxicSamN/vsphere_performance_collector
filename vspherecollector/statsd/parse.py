@@ -298,7 +298,7 @@ class Parser:
         return None
 
     def _get_fqdn(self, name):
-        fqdn = None
+        fqdn = ''
         try:
             dns_qry = dns.resolver.query(name)
             fqdn = dns_qry.canonical_name.__str__().strip('.')

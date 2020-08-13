@@ -1,4 +1,4 @@
-VERSION = "2.3.6-15"
+VERSION = "2.3.6-17"
 """
 This code is very specific to the ollector VMs being used to collect VM performance data.
 The goal is to be able to collect all VM stats with as granular sampling as possible, in 
@@ -112,12 +112,12 @@ def new_bg_agents(num, sq, iq, aq, atq, dq):
                                                      target=Parser,
                                                      kwargs={'statsq': sq, 'influxq': iq, 'datadogq': dq}))
 
-            proc_pool.append(multiprocessing.Process(name=f'datadog_proc_{x}',
-                                                     target=Datadog,
-                                                     kwargs={
-                                                         'config_file': f'{BASE_DIR}/datadog_config.conf',
-                                                         'bg_process': True,
-                                                         'ddq': dq}))
+            # proc_pool.append(multiprocessing.Process(name=f'datadog_proc_{x}',
+            #                                          target=Datadog,
+            #                                          kwargs={
+            #                                              'config_file': f'{BASE_DIR}/datadog_config.conf',
+            #                                              'bg_process': True,
+            #                                              'ddq': dq}))
 
         return proc_pool
     except BaseException as e:
