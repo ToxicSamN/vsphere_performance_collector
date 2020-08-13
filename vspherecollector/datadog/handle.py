@@ -115,14 +115,15 @@ class Datadog(object):
 
                     try:
                         if isinstance(json_data, list):
-                            self.post_metric({'series': json_data})
+                            datadog_retired = True
+                            # self.post_metric({'series': json_data})
 
                     except BaseException as e:
                         # Writing to Datadog was unsuccessful. For now let's just try to resend
                         self.__log.error('Failed to Send datadog data {}'.format(json_data))
                         self.__log.info('Retry Sending stats: {}'.format(json_data))
                         self.logger.exception('Exception: {}, \n Args: {}'.format(e, e.args))
-                        self.post_metric({'series': json_data})
+                        # self.post_metric({'series': json_data})
 
                         pass
             except queue.Empty:

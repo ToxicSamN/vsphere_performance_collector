@@ -7,6 +7,9 @@ from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 from requests.exceptions import ConnectionError, ConnectTimeout, SSLError
 from vspherecollector.vmware.rest.exceptions import SessionAuthenticationException, VcenterServiceUnavailable
+from requests.exceptions import (ConnectionError, ConnectTimeout, ReadTimeout, SSLError,
+                         ProxyError, RetryError, InvalidSchema, InvalidProxyURL,
+                         InvalidURL)
 
 
 BASE_URL = 'https://{}/rest/appliance/'
@@ -43,11 +46,11 @@ class SessionRetry:
 class CimSession(requests.Session):
 
     def __init__(self, vcenter, username, password, ssl_verify=True, ignore_weak_ssl=False):
+        super().__init__()
         self._session_url = CIM_URL.format(vcenter)
         self.vcenter = vcenter
         self.response = None
         self.response_data = None
-        super().__init__()
         self.auth = HTTPBasicAuth(username=username, password=password)
         self.verify = ssl_verify
         self._setup()
@@ -56,14 +59,14 @@ class CimSession(requests.Session):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def _setup(self):
-        return SessionRetry(session=self).get()
+        return SessionRetry(session=self, retries=1).get()
 
     def response_json_to_dict(self):
         self.response_data = json.loads(self.response_data.decode('utf8'))
 
     def login(self):
         try:
-            response = self.post(self._session_url)
+            response = self.post(self._session_url, timeout=10)  # 10 second timeout
             self.headers.update(
                 {'vmware-api-session-id': json.loads(response.content.decode('utf8'))['value']})
             return self
@@ -74,6 +77,13 @@ class CimSession(requests.Session):
             if e.response.status_code == 503:
                 # Vcenter service offline
                 raise VcenterServiceUnavailable("vCenter Service Unavailable")
+
+            raise VcenterServiceUnavailable("vCenter Service Unavailable")
+        except ConnectionError as e:
+            raise VcenterServiceUnavailable("vCenter Service Unavailable")
+        except BaseException as e:
+            # catch-all exception
+            raise VcenterServiceUnavailable("vCenter Service Unavailable")
 
     def logout(self):
         response = self.delete(self._session_url)

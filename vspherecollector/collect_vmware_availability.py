@@ -1,4 +1,4 @@
-VERSION = "2.3.6-15"
+VERSION = "1.1.2"
 """
 This script very specific to the vmcollector VMs being used to collect VM performance data.
  Each collector VM runs with 4 tasks each task handles a group of VMs. The goal is to be able to collect all VM stats
@@ -16,6 +16,7 @@ from requests.exceptions import HTTPError
 from datetime import datetime
 from vspherecollector.vmware.rest.client import CimSession
 from vspherecollector.vmware.rest.service import VCSAService
+from vspherecollector.vmware.credentials.credstore import Credential
 from vspherecollector.vmware.rest.exceptions import VcenterServiceUnavailable, SessionAuthenticationException
 from vspherecollector.influx.client import InfluxDB
 from vspherecollector.datadog.handle import Datadog
@@ -30,12 +31,13 @@ sys.path.append(BASE_DIR)
 args = Args()
 
 log_setup = LoggerSetup(yaml_file=f'{BASE_DIR}/logging_config.yml')
+# log_setup = LoggerSetup(yaml_file=f'{BASE_DIR}/../testing_logging_config.yml')
 if args.DEBUG:
     log_setup.set_loglevel(loglevel='DEBUG')
 
 log_setup.setup()
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(f'vcServices.{__name__}')
 
 vcenter_list = []
 proc_pool = []
@@ -72,6 +74,7 @@ def new_bg_agents(num, iq, dq):
                                                      kwargs={'influxq': iq,
                                                              'host': args.TelegrafIP,
                                                              'port': args.prod_port,
+                                                             #'port': args.nonprod_port,
                                                              'username': 'anonymous',
                                                              'password': 'anonymous',
                                                              'database': 'perf_stats',
@@ -151,48 +154,113 @@ def waiter(process_pool, timeout_secs=60):
             break
 
 
-def main(cim, influxq, datadogq):
-    main_logger = logging.getLogger(f'vcServices.{__name__}_')
+def VcenterUnavailable(vcenter, timestamp, influxq):
+    influx_json = {
+        'time': timestamp,
+        'measurement': 'vCenterAvailability',
+        'fields': {
+            'available': 0,
+            'unavailable': 1
+        },
+        'tags': {
+            'vcenter': vcenter
+        }
+    }
+    logger.debug(f"ParsedToJSON: {influx_json}")
+    influxq.put_nowait(influx_json)
+
+    for s in ['vpxd', 'vpxd-svcs', 'vmware-vpostgres', 'rbd', 'imagebuilder', "vsphere-ui"]:
+        influx_json = {
+            'time': timestamp,
+            'measurement': f'vcServices.{s}',
+            'fields': {
+                'started': 0,
+                'stopped': 1,
+                'healthy': 0,
+                'warning': 1,
+                'degraded': 0
+            },
+            'tags': {
+                'vcenter': vcenter
+            }
+        }
+        logger.debug(f"ParsedToJSON: {influx_json}")
+        influxq.put_nowait(influx_json)
+
+
+def main(cim, vcenter, influxq, datadogq):
+    cim = CimSession(
+        vcenter=vcenter,
+        username=cim.auth.username,
+        password=cim.auth.password,
+        ignore_weak_ssl=True,
+        ssl_verify=cim.verify
+    )
+    main_logger = logging.getLogger(f'vcServices.{vcenter}')
+
+    # intial sleep timer to align the run times to every 10 seconds
+    time.sleep(10 - (datetime.now().second % 10))
+
+    dt_start = datetime.utcnow()
+    try:
+        # attempt to login
+        cim.login()
+    except VcenterServiceUnavailable as e:
+        VcenterUnavailable(cim.vcenter, dt_start, influxq)
+        main_logger.exception(e)
 
     while True:
+    # while count < 7:
+
+        # guard condition for time sync
+        if dt_start:
+            dt = dt_start
+            dt_start = None
+        else:
+            dt = datetime.utcnow()
+
         try:
-            dt = datetime.now()
-            cim.login()
+            print("go now")
+            main_logger.info(f"Collecting at : {dt}")
+
+            # collect the services, if not login then another attempt will be made in except
             svc = VCSAService(cim_session=cim)
-            influxq.put(svc.list_all_services())
-            # Todo: datadog q is not used at this time
+            influx_json_series = svc.list_all_services()
+            influxq.put(influx_json_series)
 
             influx_json = {
                 'time': dt,
                 'measurement': 'vCenterAvailability',
                 'fields': {
-                    'state': 'available'
+                    'available': 1,
+                    'unavailable': 0
                 },
                 'tags': {
                     'vcenter': cim.vcenter
                 }
             }
-            influxq.put(influx_json)
+            influxq.put_nowait(influx_json)
 
         except SessionAuthenticationException as e:
             main_logger.exception(e)
+
         except VcenterServiceUnavailable as e:
-            influx_json = {
-                'time': dt,
-                'measurement': 'vCenterAvailability',
-                'fields': {
-                    'state': 'unavailable'
-                },
-                'tags': {
-                    'vcenter': cim.vcenter
-                }
-            }
-            influxq.put(influx_json)
+            VcenterUnavailable(cim.vcenter, dt, influxq)
             main_logger.exception(e)
+
         except HTTPError as e:
             main_logger.exception(e)
-        finally:
-            cim.logout()
+            if e.response.status_code == 401:
+                # login session expired
+                main_logger.info("Possible Session timeout. Run cim.login()")
+                try:
+                    cim.login()
+                except VcenterServiceUnavailable as e:
+                    VcenterUnavailable(cim.vcenter, dt, influxq)
+                    main_logger.exception(e)
+
+        # need to run every 10 seconds
+        time.sleep(10 - (datetime.now().second % 10))
 
 
 if __name__ == '__main__':
@@ -206,14 +274,16 @@ if __name__ == '__main__':
         vcenter_pool = []
 
         main_program_running_threshold = 3600
+        # main_program_running_threshold = 67
         over_watch_threshold = 3600
+        # over_watch_threshold = 67
 
         # Setup the multiprocessing queues
         queue_manager = multiprocessing.Manager()
         iq = queue_manager.Queue(100)
         # datadog_queue for the datadog process to send the stats
         dq = queue_manager.Queue(100)
-        queue_manager.start()
+        # queue_manager.start()
 
         # Setup the background processes
         vcenter_list = args.vcenterNameOrIP
@@ -257,7 +327,6 @@ if __name__ == '__main__':
                 code_version = line.split("=")[1].replace('\"', '').strip('\n').strip()
                 if not code_version == VERSION:
                     logging.info(f"Code Version change from current version {VERSION} to new version {code_version}")
-                    # Exit the agent.
                     # Since the agent should be ran as a service then the agent should automatically be restarted
                     for proc in proc_pool:
                         proc.terminate()
@@ -283,6 +352,7 @@ if __name__ == '__main__':
                         vcenter_pool.append(cim)
                         process_pool.append(mp(target=main,
                                                kwargs={'cim': cim,
+                                                       'vcenter': vcenter,
                                                        'influxq': iq,
                                                        'datadogq': dq
                                                        },
@@ -333,15 +403,13 @@ if __name__ == '__main__':
                     for proc in proc_pool:
                         proc.terminate()
                     for v in vcenter_pool:
-                        if v.content:
-                            v.disconnect()
+                        v.logout()
                     break
                 logger.exception(f'Exception: {e} \n Args: {e.args}')
                 start_main = True
                 time.sleep(1)
                 for v in vcenter_pool:
-                    if v.content:
-                        v.disconnect()
+                    v.logout()
                 if error_count > 20:
                     raise e
                 else:
@@ -352,8 +420,7 @@ if __name__ == '__main__':
             for proc in proc_pool:
                 proc.terminate()
         for v in vcenter_pool:
-            if v.content:
-                v.disconnect()
+            v.logout()
         sys.exit(-1)
     except BaseException as e:
         if isinstance(e, SystemExit):
@@ -362,7 +429,6 @@ if __name__ == '__main__':
             for proc in proc_pool:
                 proc.terminate()
             for v in vcenter_pool:
-                if v.content:
-                    v.disconnect()
+                v.logout()
         else:
             logger.exception(f'Exception: {e} \n Args: {e.args}')

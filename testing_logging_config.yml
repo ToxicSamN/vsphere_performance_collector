@@ -22,7 +22,7 @@ handlers:
     syslog_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/syslog
+        filename: /Users/x3kw/code/log/vcenter_collector/syslog
         maxBytes: 524288000  #500MB
         backupCount: 8
         formatter: standard
@@ -31,7 +31,7 @@ handlers:
     file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/collect_metrics.log
+        filename: /Users/x3kw/log/vcenter_collector/collect_metrics.log
         maxBytes: 10485760  #10MB
         backupCount: 8
         formatter: standard
@@ -40,7 +40,7 @@ handlers:
     err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/collect_metrics_err.log
+        filename: /Users/x3kw/log/vcenter_collector/collect_metrics_err.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
@@ -49,7 +49,7 @@ handlers:
     vcServices_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/vcServices.log
+        filename: /Users/x3kw/log/vcenter_collector/vcServices.log
         maxBytes: 10485760  #10MB
         backupCount: 8
         formatter: standard
@@ -58,7 +58,7 @@ handlers:
     statsd_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/stats.log
+        filename: /Users/x3kw/log/vcenter_collector/stats.log
         maxBytes: 10485760  #10MB
         backupCount: 8
         formatter: standard
@@ -67,7 +67,7 @@ handlers:
     statsd_err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/stats_err.log
+        filename: /Users/x3kw/log/vcenter_collector/stats_err.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
@@ -76,7 +76,7 @@ handlers:
     statsd_agent_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/statsd_agent.log
+        filename: /Users/x3kw/log/vcenter_collector/statsd_agent.log
         maxBytes: 10485760  #10MB
         backupCount: 8
         formatter: standard
@@ -85,7 +85,7 @@ handlers:
     statsd_agent_err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/statsd_agent_err.log
+        filename: /Users/x3kw/log/vcenter_collector/statsd_agent_err.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
@@ -94,7 +94,7 @@ handlers:
     parser_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/parser.log
+        filename: /Users/x3kw/log/vcenter_collector/parser.log
         maxBytes: 10485760  #10MB
         backupCount: 8
         formatter: standard
@@ -103,7 +103,7 @@ handlers:
     parser_err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/parser_err.log
+        filename: /Users/x3kw/log/vcenter_collector/parser_err.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
@@ -112,7 +112,7 @@ handlers:
     influxd_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/influx.log
+        filename: /Users/x3kw/log/vcenter_collector/influx.log
         maxBytes: 10485760  #10MB
         backupCount: 8
         formatter: standard
@@ -121,7 +121,7 @@ handlers:
     influxd_err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/influx_err.log
+        filename: /Users/x3kw/log/vcenter_collector/influx_err.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
@@ -130,7 +130,7 @@ handlers:
     datadog_file:
         level: DEBUG
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/datadog.log
+        filename: /Users/x3kw/log/vcenter_collector/datadog.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
@@ -139,7 +139,7 @@ handlers:
     datadog_err_file:
         level: ERROR
         class: logging.handlers.RotatingFileHandler
-        filename: /var/log/vcenter_collector/datadog_err.log
+        filename: /Users/x3kw/log/vcenter_collector/datadog_err.log
         maxBytes: 10485760  #10MB
         backupCount: 20
         formatter: standard
